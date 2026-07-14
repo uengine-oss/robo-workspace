@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
   [Parameter(Position=0)][ValidateSet('help','setup','sync','doctor','up','restart','status','logs','down','build')][string]$Command = 'help',
-  [Parameter(Position=1)][ValidateSet('analyzer','architect-web','architect-electron')][string]$Profile = 'analyzer',
+  [Parameter(Position=1)][ValidateSet('analyzer','architect-web','architect-electron','all')][string]$Profile = 'analyzer',
   [Parameter(Position=2)][ValidateSet('unpacked','installer')][string]$Variant = 'unpacked',
   [switch]$SkipBuild,
   [switch]$SkipFrontend,
@@ -36,7 +36,11 @@ function Info([string]$Message) { Write-Host "[INFO] $Message" -ForegroundColor 
 function Pass([string]$Message) { Write-Host "[ OK ] $Message" -ForegroundColor Green }
 function Warn([string]$Message) { Write-Host "[WARN] $Message" -ForegroundColor Yellow }
 function Fail([string]$Message) { Write-Host "[FAIL] $Message" -ForegroundColor Red }
-function Has-Profile($Item) { return @($Item.profiles) -contains $Profile }
+function Has-Profile($Item) {
+  $profiles=@($Item.profiles)
+  if($Profile-eq'all'){return ($profiles -contains 'analyzer') -or ($profiles -contains 'architect-web')}
+  return $profiles -contains $Profile
+}
 function Repositories { return @($Config.repositories | Where-Object { Has-Profile $_ }) }
 function Services {
   $items=@($Config.services | Where-Object { Has-Profile $_ })
@@ -45,7 +49,7 @@ function Services {
 }
 function Repo-Path($Repo) { return Join-Path $ProjectRoot $Repo.path }
 function Find-Repo([string]$Id) { return $Config.repositories | Where-Object id -eq $Id | Select-Object -First 1 }
-function Is-ArchitectProfile { return $Profile -in @('architect-web','architect-electron') }
+function Is-ArchitectProfile { return $Profile -in @('architect-web','architect-electron','all') }
 
 function Show-Help {
   Write-Host @'
@@ -61,6 +65,7 @@ Run and stop:
   robo.cmd status <profile>
   robo.cmd logs <profile>
   robo.cmd down <profile>
+  robo.cmd down all
 
 Port conflict recovery (also stops unrecorded listeners on profile ports):
   robo.cmd restart <profile> -SkipBuild -ForcePorts
@@ -69,6 +74,7 @@ Profiles:
   analyzer             Analyzer stack and UI (http://127.0.0.1:3000)
   architect-web        Architect stack and browser UI (http://127.0.0.1:5173)
   architect-electron   Architect stack and Electron desktop app
+  all                  Analyzer UI + Architect browser UI together
 
 Electron packages:
   robo.cmd build architect-electron unpacked
@@ -181,6 +187,19 @@ function Test-PortBindable([int]$Port) {
   finally { if($listener){try{$listener.Stop()}catch{}} }
 }
 
+function Test-Neo4jAuthentication {
+  foreach($name in @('NEO4J_URI','NEO4J_USER','NEO4J_PASSWORD')){
+    if(-not[Environment]::GetEnvironmentVariable($name,'Process')){return $false}
+  }
+  $analyzer=Find-Repo 'analyzer'
+  if(-not $analyzer){return $false}
+  $python=Join-Path(Repo-Path $analyzer)'.venv\Scripts\python.exe'
+  if(-not(Test-Path $python)){return $false}
+  $probe="import os; from neo4j import GraphDatabase; d=GraphDatabase.driver(os.getenv('NEO4J_URI'), auth=(os.getenv('NEO4J_USER'), os.getenv('NEO4J_PASSWORD'))); d.verify_connectivity(); d.close()"
+  & $python -c $probe 2>&1|Out-Null
+  return $LASTEXITCODE-eq 0
+}
+
 function Doctor-Workspace {
   $failed=$false
   $tools=@('git','python','java','node','npm.cmd')
@@ -206,7 +225,10 @@ function Doctor-Workspace {
       elseif(-not(Test-PortBindable([int]$service.port))){Fail "$($service.id) port $($service.port) cannot be bound (possibly Windows-reserved)";$failed=$true}
     }
   }
-  if(-not(Test-Port 7687)){Fail 'Neo4j port 7687 is not listening';$failed=$true}else{Pass 'Neo4j port 7687'}
+  if(-not(Test-Port 7687)){Fail 'Neo4j port 7687 is not listening';$failed=$true}
+  elseif(-not[Environment]::GetEnvironmentVariable('NEO4J_PASSWORD','Process')){Fail 'Neo4j password missing [ACTION] set ROBO_NEO4J_PASSWORD in robo-workspace\.env';$failed=$true}
+  elseif(-not(Test-Neo4jAuthentication)){Fail 'Neo4j authentication failed [ACTION] verify ROBO_NEO4J_* in robo-workspace\.env';$failed=$true}
+  else{Pass 'Neo4j authentication'}
   if($failed){throw 'doctor found blocking problems'}
   Pass "$Profile is ready"
 }
@@ -243,7 +265,7 @@ function Build-Desktop {
 
 function Prepare-ProfileArtifacts {
   if($SkipBuild){Warn 'artifact build skipped; existing build output will be used';return}
-  if($Profile -eq 'architect-web'){Build-AnalyzerRemote}
+  if($Profile -in @('architect-web','all')){Build-AnalyzerRemote}
   if($Profile -eq 'architect-electron'){Build-Desktop}
 }
 
@@ -292,7 +314,7 @@ function Get-OwnedProcess($Entry) {
 function Stop-VerifiedProcessTree([string]$EntryId,[int]$ProcessId,[string]$StartedAt) {
   if(-not(Get-ProcessByIdentity $ProcessId $StartedAt)){return}
   Info "stopping $EntryId tree pid=$ProcessId"
-  $taskkillOutput=@(& taskkill.exe /PID $ProcessId /T /F 2>&1)
+  $taskkillOutput=@(& cmd.exe /d /c "taskkill.exe /PID $ProcessId /T /F >nul 2>&1")
   $taskkillExit=$LASTEXITCODE
   $deadline=(Get-Date).AddSeconds(10)
   while((Get-Date)-lt $deadline -and (Get-ProcessByIdentity $ProcessId $StartedAt)){
@@ -316,6 +338,49 @@ function Stop-Owned {
   }
   Remove-Item $StatePath -ErrorAction SilentlyContinue
   Pass "$Profile stopped"
+}
+
+function Set-ProfileContext([string]$Name) {
+  $script:Profile=$Name
+  $script:LogRoot=Join-Path $RuntimeRoot "logs\$Name"
+  $script:StatePath=Join-Path $RuntimeRoot "$Name-state.json"
+}
+
+function Stop-AllProfiles {
+  $originalProfile=$Profile
+  $targets=@()
+  $seen=@{}
+  try {
+    foreach($name in @('analyzer','architect-web','architect-electron','all')){
+      Set-ProfileContext $name
+      foreach($entry in @(Load-State)){
+        foreach($process in @(Get-OwnedProcesses $entry)){
+          $startedAt=$process.StartTime.ToString('o')
+          $key="$($process.Id)|$startedAt"
+          if(-not $seen.ContainsKey($key)){
+            $seen[$key]=$true
+            $targets+=[pscustomobject]@{entryId=$entry.id;processId=$process.Id;startedAt=$startedAt}
+          }
+        }
+      }
+    }
+    foreach($target in $targets){
+      Stop-VerifiedProcessTree $target.entryId $target.processId $target.startedAt
+    }
+    foreach($name in @('analyzer','architect-web','architect-electron','all')){
+      Set-ProfileContext $name
+      Remove-Item $StatePath -ErrorAction SilentlyContinue
+    }
+    if($ForcePorts){
+      foreach($name in @('analyzer','architect-web','architect-electron','all')){
+        Set-ProfileContext $name
+        Stop-ProfilePortListeners
+      }
+    }
+  } finally {
+    Set-ProfileContext $originalProfile
+  }
+  Pass 'all profiles stopped'
 }
 
 function Wait-Service($Service,[System.Diagnostics.Process]$Process) {
@@ -370,6 +435,10 @@ function Start-Workspace {
     Warn "stale $Profile state detected ($($stale.Count) exited service); cleaning owned processes before restart"
     Stop-Owned
   }
+  if($Profile-eq'all'){
+    $otherState=@('analyzer','architect-web','architect-electron')|Where-Object{Test-Path(Join-Path $RuntimeRoot "$_-state.json")}
+    if($otherState){Warn "other Workspace profile state detected ($($otherState-join ', ')); stopping it before all";Stop-AllProfiles}
+  }
   Doctor-Workspace
   Prepare-ProfileArtifacts
   New-Item -ItemType Directory -Force -Path $LogRoot|Out-Null
@@ -411,12 +480,14 @@ function Start-Workspace {
   Pass "$Profile started"
   if($Profile-eq'analyzer'){Write-Host 'Open http://127.0.0.1:3000'}
   elseif($Profile-eq'architect-web'){Write-Host 'Open http://127.0.0.1:5173'}
+  elseif($Profile-eq'all'){Write-Host 'Open Analyzer http://127.0.0.1:3000';Write-Host 'Open Architect http://127.0.0.1:5173'}
   elseif($NoElectron){Write-Host 'Shared backends are ready; run the packaged app or rerun without -NoElectron.'}
   else{Write-Host 'Electron is running. Use robo.cmd down architect-electron to stop the owned stack.'}
 }
 
 function Restart-Workspace {
-  if(Test-Path $StatePath){Stop-Owned}
+  if($Profile-eq'all'){Stop-AllProfiles}
+  elseif(Test-Path $StatePath){Stop-Owned}
   if($ForcePorts){Stop-ProfilePortListeners}
   Start-Workspace
 }
@@ -442,7 +513,7 @@ if($env:ROBO_WORKSPACE_TEST_MODE-ne'1'){
     'restart'{Restart-Workspace}
     'status'{Show-Status}
     'logs'{Show-Logs}
-    'down'{Stop-Owned;if($ForcePorts){Stop-ProfilePortListeners}}
+    'down'{if($Profile-eq'all'){Stop-AllProfiles}else{Stop-Owned;if($ForcePorts){Stop-ProfilePortListeners}}}
     'build'{Build-Desktop}
   }
 }

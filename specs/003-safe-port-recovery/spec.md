@@ -12,6 +12,13 @@ current Workspace state.
 - State records the launcher and actual TCP listener as separate process
   identities. Each identity contains both PID and process start time.
 - `down` and normal `restart` terminate only identities proven by that state.
+- `down all` terminates owned processes recorded by every Workspace profile and
+  removes all four profile state files in one command.
+- `up all` starts the standalone Analyzer UI, embedded Analyzer remote,
+  Architect API/UI, and shared backend services as one local browser stack.
+- The `all` profile excludes Electron and reports both browser URLs.
+- `down all -ForcePorts` additionally cleans declared service ports across all
+  profiles while continuing to exclude Neo4j.
 - Existing state written by the previous Workspace version remains readable;
   its exact launcher identity is honored, while an unverified orphan listener
   requires explicit forced port cleanup.
@@ -19,6 +26,8 @@ current Workspace state.
   the selected profile's declared service ports before startup.
 - Forced cleanup never includes Neo4j or ports outside the selected profile.
 - Port conflicts report the owning PID and an actionable recovery command.
+- Doctor verifies Neo4j credentials, and Catalog readiness performs a real
+  Neo4j-backed request instead of accepting a shallow process-only health check.
 
 ## Failure and boundary scenarios
 

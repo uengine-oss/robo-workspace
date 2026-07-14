@@ -56,6 +56,12 @@ try {
   $Profile='analyzer'
   New-Item -ItemType Directory -Force -Path $RuntimeRoot|Out-Null
 
+  $Profile='all'
+  Assert-True (@(Repositories).Count-eq 7) 'all profile did not include every local web repository'
+  Assert-True (@(Services).Count-eq 9) 'all profile did not include the expected nine local web services'
+  Assert-True (@(Services|Where-Object id -eq 'architect-electron').Count-eq 0) 'all profile unexpectedly included Electron'
+  $Profile='analyzer'
+
   $tree=Start-TestListenerTree
   $rootStartedAt=$tree.Root.StartTime.ToString('o')
   $listenerStartedAt=$tree.Listener.StartTime.ToString('o')
@@ -89,6 +95,20 @@ try {
   $Config=[pscustomobject]@{repositories=@();services=@([pscustomobject]@{id='external-test';port=$external.Port;profiles=@('analyzer')})}
   Stop-ProfilePortListeners
   Assert-Exited $external.Process 'forced profile-port cleanup did not stop the listener'
+
+  $allListeners=@()
+  foreach($name in @('analyzer','architect-web','architect-electron','all')){
+    $listener=Start-TestListener
+    $allListeners+=$listener
+    Set-ProfileContext $name
+    $startedAt=$listener.Process.StartTime.ToString('o')
+    Save-State @([pscustomobject]@{id="$name-test";pid=$listener.Process.Id;rootPid=$listener.Process.Id;startedAt=$startedAt;rootStartedAt=$startedAt;listenerPid=$listener.Process.Id;listenerStartedAt=$startedAt;port=$listener.Port})
+  }
+  Stop-AllProfiles
+  foreach($listener in $allListeners){Assert-Exited $listener.Process 'down all left an owned profile process running'}
+  foreach($name in @('analyzer','architect-web','architect-electron','all')){
+    Assert-True (-not(Test-Path(Join-Path $RuntimeRoot "$name-state.json"))) "down all left $name state behind"
+  }
 
   Write-Output 'process ownership tests passed'
 } finally {
