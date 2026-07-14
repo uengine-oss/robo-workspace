@@ -218,6 +218,17 @@ robo.cmd restart architect-electron -SkipBuild
 
 실수로 `up`을 다시 입력해도 stale 상태를 감지해 같은 방식으로 복구합니다.
 
+다른 터미널에서 같은 서버를 수동 실행했거나 이전 상태 파일이 유실되어 프로필
+포트가 남았다면, 명시적으로 해당 프로필 포트까지 정리한 뒤 재시작할 수 있습니다.
+
+```cmd
+robo.cmd restart architect-electron -SkipBuild -ForcePorts
+```
+
+`-ForcePorts`는 선택한 프로필의 서비스 포트 점유 프로세스까지 종료합니다. Neo4j와
+프로필 밖의 포트는 건드리지 않지만, 해당 포트에서 다른 작업을 수행 중이라면 함께
+종료될 수 있으므로 일반적인 재시작에서는 붙이지 않습니다.
+
 최신 소스로 프런트와 앱을 다시 빌드해 실행하려면 `-SkipBuild`를 뺍니다. 첫
 빌드는 약 1~3분 걸릴 수 있습니다.
 
@@ -341,7 +352,8 @@ robo.cmd setup architect-electron
 
 - `Neo4j port 7687 is not listening`: Neo4j Desktop에서 DB 시작
 - `repository missing`: `robo.cmd setup <profile>` 실행
-- `port ... already in use`: 다른 프로필을 `down`하거나 기존 점유 프로그램 확인
+- `port ... already in use`: 출력된 PID를 확인하고 다른 프로필을 `down`하거나,
+  프로필 포트 전체를 정리해도 되는 경우에만 안내된 `-ForcePorts` 명령 실행
 - `cannot be bound`: Windows 예약 포트 또는 권한 문제
 
 ### `state already exists`
@@ -365,6 +377,15 @@ robo.cmd logs <profile>
 중간 서비스가 실패하면 그 전에 시작된 프로세스도 자동 롤백합니다. `down`은
 `.robo/<profile>-state.json`에 기록된 프로세스 트리만 종료하며, 사용자가 따로
 띄운 Electron이나 같은 포트의 무관한 프로그램을 전역 검색해 죽이지 않습니다.
+상태와 무관하게 선택한 프로필의 포트 리스너까지 종료하려면 사용자가 명시적으로
+`-ForcePorts`를 추가해야 합니다.
+
+프로세스 종료 로직을 수정한 뒤 격리 회귀 테스트를 실행하려면 다음 명령을 사용합니다.
+테스트는 실제 서비스 포트가 아닌 임시 빈 포트만 사용합니다.
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File tests\process-ownership.ps1
+```
 
 ## 9. 경로와 환경설정
 

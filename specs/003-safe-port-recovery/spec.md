@@ -1,0 +1,32 @@
+# Safe port recovery
+
+## Goal
+
+Make `down` and `restart` reliably stop every process that Robo Workspace
+started, including a surviving listener whose launcher process has exited, and
+provide one explicit recovery option for profile ports opened outside the
+current Workspace state.
+
+## Contracts
+
+- State records the launcher and actual TCP listener as separate process
+  identities. Each identity contains both PID and process start time.
+- `down` and normal `restart` terminate only identities proven by that state.
+- Existing state written by the previous Workspace version remains readable;
+  its exact launcher identity is honored, while an unverified orphan listener
+  requires explicit forced port cleanup.
+- `restart <profile> -ForcePorts` additionally terminates current listeners on
+  the selected profile's declared service ports before startup.
+- Forced cleanup never includes Neo4j or ports outside the selected profile.
+- Port conflicts report the owning PID and an actionable recovery command.
+
+## Failure and boundary scenarios
+
+- PID reuse must not cause an unrelated process to be terminated.
+- A dead launcher with a live recorded listener must still be cleaned.
+- A listener with a mismatched start time must not be treated as owned.
+- Normal `down` must not terminate an unrecorded listener.
+- Forced cleanup must terminate an unrecorded listener on a profile port and
+  fail visibly if the port remains occupied.
+- Tests must use isolated temporary state and ports and must not stop the user's
+  currently running Architect stack.

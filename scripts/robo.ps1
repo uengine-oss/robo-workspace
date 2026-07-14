@@ -5,7 +5,8 @@ param(
   [Parameter(Position=2)][ValidateSet('unpacked','installer')][string]$Variant = 'unpacked',
   [switch]$SkipBuild,
   [switch]$SkipFrontend,
-  [switch]$NoElectron
+  [switch]$NoElectron,
+  [switch]$ForcePorts
 )
 
 $ErrorActionPreference = 'Stop'
@@ -60,6 +61,9 @@ Run and stop:
   robo.cmd status <profile>
   robo.cmd logs <profile>
   robo.cmd down <profile>
+
+Port conflict recovery (also stops unrecorded listeners on profile ports):
+  robo.cmd restart <profile> -SkipBuild -ForcePorts
 
 Profiles:
   analyzer             Analyzer stack and UI (http://127.0.0.1:3000)
@@ -162,6 +166,11 @@ function Test-Port([int]$Port) {
   try { return [bool](Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction Stop) } catch { return $false }
 }
 
+function Get-PortOwners([int]$Port) {
+  return @(Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue |
+    Select-Object -ExpandProperty OwningProcess -Unique)
+}
+
 function Test-PortBindable([int]$Port) {
   $listener=$null
   try {
@@ -189,7 +198,11 @@ function Doctor-Workspace {
       if(-not(Test-Path $file)){Fail "$($service.id) executable missing: $file";$failed=$true}
     }
     if($service.port){
-      if(Test-Port([int]$service.port)){Fail "$($service.id) port $($service.port) already in use";$failed=$true}
+      if(Test-Port([int]$service.port)){
+        $owners=(Get-PortOwners([int]$service.port)) -join ','
+        Fail "$($service.id) port $($service.port) already in use by pid=$owners [ACTION] robo.cmd restart $Profile -SkipBuild -ForcePorts"
+        $failed=$true
+      }
       elseif(-not(Test-PortBindable([int]$service.port))){Fail "$($service.id) port $($service.port) cannot be bound (possibly Windows-reserved)";$failed=$true}
     }
   }
@@ -244,25 +257,47 @@ function Load-State {
   $state|ForEach-Object{$_}
 }
 
-function Get-OwnedProcess($Entry) {
-  $candidateIds=@($Entry.rootPid,$Entry.pid)|Where-Object{$_}|Select-Object -Unique
-  foreach($candidateId in $candidateIds){
-    $process=Get-Process -Id ([int]$candidateId) -ErrorAction SilentlyContinue
-    if(-not $process){continue}
-    if(-not $Entry.startedAt){return $process}
-    try{
-      $expected=[DateTimeOffset]::Parse([string]$Entry.startedAt).LocalDateTime
-      if([Math]::Abs(($process.StartTime-$expected).TotalSeconds)-le 300){return $process}
-    }catch{continue}
+function Get-ProcessByIdentity([int]$ProcessId,[string]$StartedAt,[double]$ToleranceSeconds=0.01) {
+  if(-not $ProcessId -or -not $StartedAt){return $null}
+  $process=Get-Process -Id $ProcessId -ErrorAction SilentlyContinue
+  if(-not $process){return $null}
+  try{
+    $expected=[DateTimeOffset]::Parse($StartedAt).LocalDateTime
+    if([Math]::Abs(($process.StartTime-$expected).TotalSeconds)-le $ToleranceSeconds){return $process}
+  }catch{}
+  return $null
+}
+
+function Get-OwnedProcesses($Entry) {
+  $owned=@()
+  $rootStartedAt=if($Entry.rootStartedAt){[string]$Entry.rootStartedAt}else{[string]$Entry.startedAt}
+  if($Entry.rootPid){
+    $root=Get-ProcessByIdentity ([int]$Entry.rootPid) $rootStartedAt
+    if($root){$owned+=$root}
   }
+
+  if($Entry.listenerPid -and $Entry.listenerStartedAt){
+    $listener=Get-ProcessByIdentity ([int]$Entry.listenerPid) ([string]$Entry.listenerStartedAt)
+    if($listener -and @($owned|Where-Object Id -eq $listener.Id).Count-eq 0){$owned+=$listener}
+  }
+  return @($owned)
+}
+
+function Get-OwnedProcess($Entry) {
+  $owned=@(Get-OwnedProcesses $Entry)
+  if($owned.Count-gt 0){return $owned[0]}
   return $null
 }
 
 function Stop-Owned {
   $entries=@(Load-State)
   foreach($entry in $entries){
-    $process=Get-OwnedProcess $entry
-    if($process){Info "stopping $($entry.id) tree pid=$($process.Id)";& taskkill.exe /PID $process.Id /T /F|Out-Null}
+    $owned=@(Get-OwnedProcesses $entry)
+    if($owned.Count-gt 0){
+      foreach($process in $owned){
+        if(Get-Process -Id $process.Id -ErrorAction SilentlyContinue){Info "stopping $($entry.id) tree pid=$($process.Id)";& taskkill.exe /PID $process.Id /T /F|Out-Null}
+      }
+    }
     elseif($entry.pid){Warn "$($entry.id) already exited; stale pid was not touched"}
   }
   Remove-Item $StatePath -ErrorAction SilentlyContinue
@@ -287,6 +322,21 @@ function Wait-Service($Service,[System.Diagnostics.Process]$Process) {
 
 function Get-PortOwner([int]$Port) {
   return Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue|Select-Object -First 1 -ExpandProperty OwningProcess
+}
+
+function Stop-ProfilePortListeners {
+  foreach($service in Services|Where-Object{$_.port}){
+    $port=[int]$service.port
+    foreach($owner in @(Get-PortOwners $port)){
+      $process=Get-Process -Id ([int]$owner) -ErrorAction SilentlyContinue
+      $name=if($process){$process.ProcessName}else{'unknown'}
+      Warn "force stopping $($service.id) port $port listener pid=$owner process=$name"
+      & taskkill.exe /PID $owner /T /F|Out-Null
+    }
+    $deadline=(Get-Date).AddSeconds(10)
+    while((Get-Date)-lt $deadline -and (Test-Port $port)){Start-Sleep -Milliseconds 200}
+    if(Test-Port $port){throw "$($service.id) port $port remains in use after forced cleanup"}
+  }
 }
 
 function Expand-ServiceValue([string]$Value) {
@@ -326,10 +376,20 @@ function Start-Workspace {
         $process=Start-Process @startOptions
       }
       finally{if($service.env){foreach($property in $service.env.PSObject.Properties){[Environment]::SetEnvironmentVariable($property.Name,$original[$property.Name],'Process')}}}
-      $entry=[pscustomobject]@{id=$service.id;pid=$process.Id;rootPid=$process.Id;startedAt=$process.StartTime.ToString('o');health=$service.health;port=$service.port}
+      $rootStartedAt=$process.StartTime.ToString('o')
+      $entry=[pscustomobject]@{id=$service.id;pid=$process.Id;rootPid=$process.Id;startedAt=$rootStartedAt;rootStartedAt=$rootStartedAt;listenerPid=$null;listenerStartedAt=$null;health=$service.health;port=$service.port}
       $started+=$entry;Save-State $started
       if(-not(Wait-Service $service $process)){throw "$($service.id) failed readiness; see $err"}
-      if($service.port){$owner=Get-PortOwner([int]$service.port);if($owner){$entry.pid=$owner;Save-State $started}}
+      if($service.port){
+        $owner=Get-PortOwner([int]$service.port)
+        if($owner){
+          $listener=Get-Process -Id ([int]$owner) -ErrorAction Stop
+          $entry.pid=$owner
+          $entry.listenerPid=$owner
+          $entry.listenerStartedAt=$listener.StartTime.ToString('o')
+          Save-State $started
+        }
+      }
       $ready=if($service.health){$service.health}else{"process pid=$($entry.pid)"}
       Pass "$($service.id) ready: $ready"
     }
@@ -343,6 +403,7 @@ function Start-Workspace {
 
 function Restart-Workspace {
   if(Test-Path $StatePath){Stop-Owned}
+  if($ForcePorts){Stop-ProfilePortListeners}
   Start-Workspace
 }
 
@@ -357,15 +418,17 @@ function Show-Logs {
   foreach($file in Get-ChildItem $LogRoot -File|Sort-Object Name){Write-Host "`n--- $($file.Name) ---";Get-Content $file.FullName -Tail 20}
 }
 
-switch($Command){
-  'help'{Show-Help}
-  'setup'{Setup-Workspace}
-  'sync'{Sync-Workspace}
-  'doctor'{Doctor-Workspace}
-  'up'{Start-Workspace}
-  'restart'{Restart-Workspace}
-  'status'{Show-Status}
-  'logs'{Show-Logs}
-  'down'{Stop-Owned}
-  'build'{Build-Desktop}
+if($env:ROBO_WORKSPACE_TEST_MODE-ne'1'){
+  switch($Command){
+    'help'{Show-Help}
+    'setup'{Setup-Workspace}
+    'sync'{Sync-Workspace}
+    'doctor'{Doctor-Workspace}
+    'up'{Start-Workspace}
+    'restart'{Restart-Workspace}
+    'status'{Show-Status}
+    'logs'{Show-Logs}
+    'down'{Stop-Owned;if($ForcePorts){Stop-ProfilePortListeners}}
+    'build'{Build-Desktop}
+  }
 }
