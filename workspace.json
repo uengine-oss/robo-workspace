@@ -1,18 +1,23 @@
 {
   "repositories": [
-    {"id":"antlr","path":"antlr-code-parser","url":"https://github.com/uengine-oss/antlr-code-parser.git","branch":"main","profiles":["analyzer"]},
-    {"id":"gateway","path":"api-gateway","url":"https://github.com/uengine-oss/robo-api-gateway.git","branch":"main","profiles":["analyzer"]},
-    {"id":"analyzer","path":"robo-data-analyzer","url":"https://github.com/uengine-oss/robo-data-analyzer.git","branch":"main","profiles":["analyzer"]},
-    {"id":"frontend","path":"robo-data-frontend","url":"https://github.com/uengine-oss/robo-data-frontend.git","branch":"main","profiles":["analyzer"]},
-    {"id":"fabric","path":"robo-data-fabric","url":"https://github.com/uengine-oss/robo-data-fabric.git","branch":"main","profiles":["analyzer"]},
-    {"id":"catalog","path":"robo-data-catalog","url":"https://github.com/uengine-oss/robo-data-catalog.git","branch":"main","profiles":["analyzer"]}
+    {"id":"antlr","path":"antlr-code-parser","url":"https://github.com/uengine-oss/antlr-code-parser.git","branch":"main","profiles":["analyzer","architect-web","architect-electron"]},
+    {"id":"gateway","path":"api-gateway","url":"https://github.com/uengine-oss/robo-api-gateway.git","branch":"main","profiles":["analyzer","architect-web","architect-electron"]},
+    {"id":"analyzer","path":"robo-data-analyzer","url":"https://github.com/uengine-oss/robo-data-analyzer.git","branch":"main","profiles":["analyzer","architect-web","architect-electron"]},
+    {"id":"frontend","path":"robo-data-frontend","url":"https://github.com/uengine-oss/robo-data-frontend.git","branch":"main","profiles":["analyzer","architect-web","architect-electron"]},
+    {"id":"fabric","path":"robo-data-fabric","url":"https://github.com/uengine-oss/robo-data-fabric.git","branch":"main","profiles":["analyzer","architect-web","architect-electron"]},
+    {"id":"catalog","path":"robo-data-catalog","url":"https://github.com/uengine-oss/robo-data-catalog.git","branch":"main","profiles":["analyzer","architect-web","architect-electron"]},
+    {"id":"architect","path":"robo-architect","url":"https://github.com/uengine-oss/robo-architect.git","branch":"main","profiles":["architect-web","architect-electron"]}
   ],
   "services": [
-    {"id":"analyzer","repo":"analyzer","cwd":".","file":".venv/Scripts/python.exe","args":["-m","uvicorn","main:app","--host","127.0.0.1","--port","5502"],"port":5502,"health":"http://127.0.0.1:5502/","timeout":90,"profiles":["analyzer"]},
-    {"id":"catalog","repo":"catalog","cwd":".","file":".venv/Scripts/python.exe","args":["-m","uvicorn","main:app","--host","127.0.0.1","--port","5503"],"port":5503,"health":"http://127.0.0.1:5503/health","timeout":90,"profiles":["analyzer"]},
-    {"id":"fabric","repo":"fabric","cwd":"backend","file":".venv/Scripts/python.exe","args":["-m","uvicorn","app.main:app","--host","127.0.0.1","--port","8404"],"port":8404,"health":"http://127.0.0.1:8404/health","timeout":90,"profiles":["analyzer"]},
-    {"id":"antlr","repo":"antlr","cwd":".","file":"cmd.exe","args":["/d","/c","call","mvnw.cmd","-q","spring-boot:run"],"env":{"SERVER_PORT":"8401"},"port":8401,"health":"http://127.0.0.1:8401/","timeout":180,"profiles":["analyzer"]},
-    {"id":"gateway","repo":"gateway","cwd":".","file":"cmd.exe","args":["/d","/c","call","mvnw.cmd","-q","spring-boot:run"],"env":{"ROBO_ANTLR_URL":"http://127.0.0.1:8401","ROBO_DATA_FABRIC_URL":"http://127.0.0.1:8404"},"port":9000,"health":"http://127.0.0.1:9000/actuator/health","timeout":180,"profiles":["analyzer"]},
-    {"id":"frontend","repo":"frontend","cwd":".","file":"npm.cmd","args":["run","dev"],"port":3000,"health":"http://127.0.0.1:3000/","timeout":90,"profiles":["analyzer"]}
+    {"id":"analyzer","repo":"analyzer","cwd":".","file":".venv/Scripts/python.exe","args":["-m","uvicorn","main:app","--host","127.0.0.1","--port","5502"],"port":5502,"health":"http://127.0.0.1:5502/","timeout":90,"profiles":["analyzer","architect-web","architect-electron"]},
+    {"id":"catalog","repo":"catalog","cwd":".","file":".venv/Scripts/python.exe","args":["-m","uvicorn","main:app","--host","127.0.0.1","--port","5503"],"port":5503,"health":"http://127.0.0.1:5503/health","timeout":90,"profiles":["analyzer","architect-web","architect-electron"]},
+    {"id":"fabric","repo":"fabric","cwd":"backend","file":".venv/Scripts/python.exe","args":["-m","uvicorn","app.main:app","--host","127.0.0.1","--port","8404"],"port":8404,"health":"http://127.0.0.1:8404/health","timeout":90,"profiles":["analyzer","architect-web","architect-electron"]},
+    {"id":"antlr","repo":"antlr","cwd":".","file":"cmd.exe","args":["/d","/c","call","mvnw.cmd","-q","spring-boot:run"],"env":{"SERVER_PORT":"8401"},"port":8401,"health":"http://127.0.0.1:8401/","timeout":180,"profiles":["analyzer","architect-web","architect-electron"]},
+    {"id":"gateway","repo":"gateway","cwd":".","file":"cmd.exe","args":["/d","/c","call","mvnw.cmd","-q","spring-boot:run"],"env":{"ROBO_ANTLR_URL":"http://127.0.0.1:8401","ROBO_DATA_FABRIC_URL":"http://127.0.0.1:8404","ROBO_ARCHITECT_URL":"http://127.0.0.1:8501"},"port":9000,"health":"http://127.0.0.1:9000/actuator/health","timeout":180,"profiles":["analyzer","architect-web","architect-electron"]},
+    {"id":"frontend","repo":"frontend","cwd":".","file":"npm.cmd","args":["run","dev"],"port":3000,"health":"http://127.0.0.1:3000/","timeout":90,"profiles":["analyzer"]},
+    {"id":"analyzer-remote","repo":"frontend","cwd":".","file":"npm.cmd","args":["run","preview","--","--host","127.0.0.1","--port","5001","--strictPort"],"port":5001,"health":"http://127.0.0.1:5001/assets/remoteEntry.js","timeout":90,"profiles":["architect-web"]},
+    {"id":"architect-api","repo":"architect","cwd":".","file":"uv.exe","args":["run","python","-m","uvicorn","api.main:app","--host","127.0.0.1","--port","8501"],"port":8501,"health":"http://127.0.0.1:8501/api/health","timeout":120,"profiles":["architect-web"]},
+    {"id":"architect-web","repo":"architect","cwd":"frontend","file":"npm.cmd","args":["run","dev","--","--host","127.0.0.1","--port","5173","--strictPort"],"env":{"ARCHITECT_API_URL":"http://127.0.0.1:8501"},"port":5173,"health":"http://127.0.0.1:5173/","timeout":90,"profiles":["architect-web"]},
+    {"id":"architect-electron","repo":"architect","cwd":"desktop","file":"out/dist/win-unpacked/Robo-Architect.exe","args":[],"env":{"ROBO_BACKEND_DIR":"${ARCHITECT_DIR}","ROBO_GATEWAY_URL":"http://127.0.0.1:9000","ELECTRON_RUN_AS_NODE":""},"windowStyle":"Normal","readyDelay":15,"timeout":45,"profiles":["architect-electron"]}
   ]
 }

@@ -1,46 +1,298 @@
 # Robo Workspace
 
-독립 Git 저장소로 구성된 Robo 서비스를 한 명령으로 준비·동기화·실행합니다. 소스 저장소를 합치거나 서브모듈로 중첩하지 않습니다.
+Robo Workspace는 여러 개로 나뉜 Robo Git 저장소를 **한 번에 준비하고 실행하고
+종료하는 Windows용 관리 도구**입니다.
 
-## 처음 한 번
+Robo는 하나의 프로그램처럼 보이지만 실제로는 Analyzer, parser, Gateway,
+data-fabric, Architect UI처럼 역할이 다른 서비스가 각각 독립 저장소에 있습니다.
+예전에는 저장소마다 서버를 직접 켜야 했고, 포트나 실행 순서를 하나라도
+틀리면 전체가 동작하지 않았습니다. 이 도구가 그 배선을 대신 관리합니다.
+
+## 1. 어떤 문제를 해결하나요?
+
+Robo Workspace 하나로 다음 작업을 할 수 있습니다.
+
+- 필요한 독립 저장소를 `project/` 아래에 자동 clone
+- Python과 Node 의존성 설치
+- 실행 전 도구·저장소·Neo4j·포트 상태 검사
+- 필요한 서비스를 올바른 순서로 시작하고 실제 health 응답까지 대기
+- 웹 UI 또는 Electron 앱 실행
+- 자신이 시작한 프로세스만 안전하게 종료
+- 여러 저장소를 수정 내용 손실 없이 동기화
+- Electron 실행 파일과 설치 파일 빌드
+
+코드를 모노레포로 합치거나 Architect 아래에 같은 저장소를 다시 중첩하지
+않습니다. 각 저장소는 계속 독립 Git 저장소이고, [workspace.json](workspace.json)이
+“어떤 프로필에 어떤 저장소와 서비스가 필요한지”를 기록한 배선도입니다.
+
+## 2. 프로필은 무엇인가요?
+
+프로필은 “무엇을 실행할지”를 고르는 이름입니다.
+
+| 프로필 | 실행되는 것 | 결과 |
+|---|---|---|
+| `analyzer` | parser, Analyzer, catalog, data-fabric, Gateway, Analyzer UI | 브라우저 `http://127.0.0.1:3000` |
+| `architect-web` | 공통 백엔드 5종, Analyzer remote, Architect API, Architect UI | 브라우저 `http://127.0.0.1:5173` |
+| `architect-electron` | 공통 백엔드 5종, 빌드된 Architect 데스크톱 앱, 앱 내부 Architect API | `Robo Architect` Electron 창 |
+
+Analyzer만 확인하려면 `analyzer`, Architect를 브라우저로 확인하려면
+`architect-web`, 실제 데스크톱 앱을 확인하려면 `architect-electron`을 씁니다.
+
+## 3. 명령어는 각각 무슨 뜻인가요?
+
+| 명령 | 의미 | 언제 사용하나요? |
+|---|---|---|
+| `help` | 간단한 사용법 표시 | 명령이 기억나지 않을 때 |
+| `setup` | 저장소 clone + 의존성 설치 | PC마다 프로필별 최초 1회, 의존성이 바뀐 뒤 |
+| `doctor` | 실행 조건과 포트 검사 | `up` 전에 문제가 없는지 확인할 때 |
+| `up` | 빌드하고 모든 서비스를 시작 | 실제 실행할 때 |
+| `status` | 관리 중인 프로세스 상태 표시 | 제대로 떠 있는지 확인할 때 |
+| `logs` | 서비스별 최근 로그 표시 | 실행 실패 원인을 볼 때 |
+| `down` | 이 도구가 시작한 프로세스 트리 종료 | 사용을 마쳤을 때, 재실행 전에 |
+| `sync` | 안전한 저장소 업데이트 | 다른 사람의 최신 커밋을 받을 때 |
+| `build` | Electron 패키지 생성 | exe 또는 installer가 필요할 때 |
+
+아무 인자 없이 `robo.cmd`를 실행하면 이 요약이 터미널에 표시됩니다.
+
+## 4. 지금 이 PC에서 직접 해보기
+
+현재 작업 경로가 `D:\work\robo`라면 아래 명령을 그대로 복사해서 실행할 수
+있습니다. **한 프로필을 시험한 뒤 반드시 `down`하고 다음 프로필을 실행**하세요.
+프로필들이 같은 포트를 공유하기 때문입니다.
+
+### 4-1. 먼저 공통 확인
+
+Neo4j Desktop에서 DB를 시작해 Bolt 포트 `7687`이 열려 있어야 합니다.
 
 ```cmd
-robo.cmd setup analyzer
-robo.cmd doctor analyzer
+cd /d D:\work\robo\robo-workspace
+robo.cmd
 ```
 
-`setup`이 `.env.example`에서 로컬 `.env`를 처음 한 번 생성합니다. Neo4j와 LLM 등 비밀정보를 입력하세요. 공통 Neo4j 값은 Analyzer의 `ROBO_NEO4J_*`와 Catalog/Fabric의 `NEO4J_*` 양쪽에 전달됩니다.
-
-## 실행
+이미 이 PC에는 의존성 설치가 완료되어 있습니다. 다른 PC나 새 clone에서는
+시험할 프로필에 대해 먼저 다음을 실행합니다.
 
 ```cmd
+robo.cmd setup architect-web
+```
+
+`setup complete`가 나오면 준비가 끝난 것입니다. 최초 setup은 다운로드 때문에
+몇 분 걸릴 수 있습니다.
+
+### 4-2. Architect 웹 직접 실행
+
+```cmd
+cd /d D:\work\robo\robo-workspace
+robo.cmd doctor architect-web
+robo.cmd up architect-web -SkipBuild
+```
+
+예상 결과:
+
+1. 각 서비스마다 `[ OK ] ... ready`가 표시됩니다.
+2. 마지막에 `Open http://127.0.0.1:5173`이 표시됩니다.
+3. 브라우저에서 `http://127.0.0.1:5173`을 열면 Robo Architect 화면이 나옵니다.
+
+상태와 로그를 보고 종료합니다.
+
+```cmd
+robo.cmd status architect-web
+robo.cmd logs architect-web
+robo.cmd down architect-web
+```
+
+`-SkipBuild`는 방금 검증한 기존 프런트 빌드 결과를 재사용해 빠르게 띄우는
+옵션입니다. 프런트 소스를 수정했다면 옵션을 빼고 실행하십시오.
+
+```cmd
+robo.cmd up architect-web
+```
+
+### 4-3. Architect Electron 직접 실행
+
+```cmd
+cd /d D:\work\robo\robo-workspace
+robo.cmd doctor architect-electron
+robo.cmd up architect-electron -SkipBuild
+```
+
+예상 결과:
+
+1. 공통 백엔드 5종이 준비됩니다.
+2. 실제 `desktop\out\dist\win-unpacked\Robo-Architect.exe`가 실행됩니다.
+3. `Robo Architect` 데스크톱 창이 표시됩니다.
+4. Electron 내부에서 Architect API가 빈 포트를 골라 자동 시작됩니다.
+
+사용을 마치면 창만 닫는 대신 아래 명령으로 공통 백엔드까지 함께 정리하십시오.
+
+```cmd
+robo.cmd status architect-electron
+robo.cmd down architect-electron
+```
+
+최신 소스로 프런트와 앱을 다시 빌드해 실행하려면 `-SkipBuild`를 뺍니다. 첫
+빌드는 약 1~3분 걸릴 수 있습니다.
+
+```cmd
+robo.cmd up architect-electron
+```
+
+Architect 저장소에서도 같은 명령을 더 짧게 실행할 수 있습니다.
+
+```cmd
+cd /d D:\work\robo\project\robo-architect
+scripts\dev-desktop.cmd -SkipBuild
+scripts\dev-desktop.cmd -Stop
+```
+
+### 4-4. Analyzer UI 직접 실행
+
+```cmd
+cd /d D:\work\robo\robo-workspace
+robo.cmd doctor analyzer
 robo.cmd up analyzer
-robo.cmd status analyzer
-robo.cmd logs analyzer
+```
+
+브라우저에서 `http://127.0.0.1:3000`을 열어 확인한 뒤 종료합니다.
+
+```cmd
 robo.cmd down analyzer
 ```
 
-`analyzer` 프로필은 parser 8401, analyzer 5502, catalog 5503, fabric 8404, gateway 9000, frontend 3000을 실행합니다. 8004·8081이 Windows 예약 포트인 환경에서도 동작하도록 Gateway에는 실제 주소를 환경변수로 전달합니다.
+## 5. Electron 실행 파일과 설치 파일 만들기
 
-## 저장소 동기화
-
-```cmd
-robo.cmd sync analyzer
-```
-
-변경 파일이 있는 저장소와 기본 브랜치가 아닌 저장소는 자동 변경하지 않습니다. 나머지만 `fetch` 후 `pull --ff-only`로 갱신합니다.
-
-## 폴더 배치
-
-기본 소스 위치는 이 저장소의 형제 `project/`입니다. 다른 위치는 환경변수로 지정할 수 있습니다.
+프런트부터 모두 새로 빌드한 unpacked 실행 파일:
 
 ```cmd
-set ROBO_PROJECT_ROOT=D:\src\robo-projects
-robo.cmd setup analyzer
+robo.cmd build architect-electron unpacked
 ```
 
-로그와 PID 상태는 `robo-workspace/.robo/`에 저장됩니다. `down`은 이 실행기가 기록한 프로세스 트리만 종료합니다.
+결과:
 
-## 문제 해결
+```text
+project\robo-architect\desktop\out\dist\win-unpacked\Robo-Architect.exe
+```
 
-`doctor`가 실패하면 `[ACTION]`의 조치부터 수행합니다. 포트만 열려 있는 상태를 성공으로 보지 않고 각 서비스 HTTP health 응답까지 확인합니다.
+Windows NSIS 설치 파일:
+
+```cmd
+robo.cmd build architect-electron installer
+```
+
+결과:
+
+```text
+project\robo-architect\desktop\out\dist\Robo-Architect-Setup-0.1.0.exe
+```
+
+프런트를 방금 빌드했고 패키징만 다시 하고 싶다면 `-SkipFrontend`을 붙일 수
+있습니다.
+
+```cmd
+robo.cmd build architect-electron installer -SkipFrontend
+```
+
+주의: 현재 산출물은 **개발용 패키지**입니다. Python backend runtime까지
+포함한 완전 독립 설치본은 아직 아니므로, 다른 PC에 설치 파일 하나만 전달하는
+배포 방식은 별도의 runtime bundle 작업 후 지원해야 합니다.
+
+## 6. 저장소 동기화는 안전한가요?
+
+```cmd
+robo.cmd sync architect-electron
+```
+
+`sync`은 각 독립 저장소를 확인하고 다음 조건일 때만 `pull --ff-only` 합니다.
+
+- 수정 파일이 없음
+- 해당 저장소의 기본 브랜치에 있음
+
+수정 중인 dirty 저장소와 다른 브랜치는 `[WARN] ... skipped`로 건너뜁니다.
+사용자 작업을 자동으로 stash, reset, checkout하지 않습니다.
+
+## 7. 포트와 서비스 배선
+
+| 서비스 | 로컬 포트 |
+|---|---:|
+| Analyzer | 5502 |
+| catalog | 5503 |
+| data-fabric | 8404 |
+| parser | 8401 |
+| Gateway | 9000 |
+| Analyzer federation remote | 5001 |
+| Architect web API | 8501 |
+| Architect web UI | 5173 |
+| Analyzer 전용 UI | 3000 |
+
+이 PC에서는 Windows가 8001·8004·8081을 예약해 애플리케이션이 사용할 수
+없습니다. 그래서 로컬 실행은 8501·8404·8401을 사용하고, UI와 Gateway에는
+실제 주소를 환경변수로 전달합니다. 배포 기본값 자체를 강제로 바꾸지는 않습니다.
+
+## 8. 문제가 생기면
+
+### `doctor found blocking problems`
+
+바로 위 `[FAIL]` 줄을 확인합니다.
+
+- `Neo4j port 7687 is not listening`: Neo4j Desktop에서 DB 시작
+- `repository missing`: `robo.cmd setup <profile>` 실행
+- `port ... already in use`: 다른 프로필을 `down`하거나 기존 점유 프로그램 확인
+- `cannot be bound`: Windows 예약 포트 또는 권한 문제
+
+### `state already exists`
+
+이전에 시작한 프로필이 관리 중이라는 뜻입니다.
+
+```cmd
+robo.cmd status <profile>
+robo.cmd down <profile>
+robo.cmd up <profile>
+```
+
+### 서비스 readiness 실패
+
+실패한 서비스와 로그 경로가 오류에 표시됩니다. 전체 최근 로그는 다음으로
+확인합니다.
+
+```cmd
+robo.cmd logs <profile>
+```
+
+중간 서비스가 실패하면 그 전에 시작된 프로세스도 자동 롤백합니다. `down`은
+`.robo/<profile>-state.json`에 기록된 프로세스 트리만 종료하며, 사용자가 따로
+띄운 Electron이나 같은 포트의 무관한 프로그램을 전역 검색해 죽이지 않습니다.
+
+## 9. 경로와 환경설정
+
+기본 구조:
+
+```text
+D:\work\robo\
+├─ robo-workspace\        공통 실행기와 배선도
+└─ project\               독립 Git 저장소들
+   ├─ robo-architect\
+   ├─ robo-data-analyzer\
+   ├─ robo-data-frontend\
+   ├─ robo-data-catalog\
+   ├─ robo-data-fabric\
+   ├─ antlr-code-parser\
+   └─ api-gateway\
+```
+
+저장소 위치가 다르면:
+
+```cmd
+set ROBO_PROJECT_ROOT=D:\다른경로\robo-projects
+robo.cmd setup architect-web
+```
+
+Architect의 호환 스크립트가 다른 Robo Workspace를 사용해야 하면:
+
+```cmd
+set ROBO_WORKSPACE_DIR=D:\다른경로\robo-workspace
+scripts\dev-desktop.cmd
+```
+
+Neo4j와 비밀 값은 Git에 올리지 않는 `robo-workspace\.env` 또는 각 서비스의
+로컬 `.env`에서 관리합니다. 비밀번호와 API 키를 README나 스크립트에 직접
+적지 마십시오.
