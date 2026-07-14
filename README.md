@@ -88,7 +88,7 @@ robo.cmd down architect-electron
 
 ```cmd
 cd /d C:\robo\robo-workspace
-robo.cmd up architect-electron -SkipBuild
+robo.cmd up architect-electron
 ```
 
 종료:
@@ -97,8 +97,8 @@ robo.cmd up architect-electron -SkipBuild
 robo.cmd down architect-electron
 ```
 
-`-SkipBuild`는 이전에 검증한 Electron 산출물을 재사용하므로 가장 빠릅니다.
-소스를 업데이트했거나 처음 실행할 때는 `-SkipBuild`를 빼십시오.
+기존 Electron 산출물은 기본으로 재사용합니다. 소스를 수정해 강제로 새 산출물이
+필요할 때만 `-Build`를 붙이십시오. 산출물이 없으면 자동으로 최초 빌드합니다.
 
 ## 2. 프로필은 무엇인가요?
 
@@ -122,6 +122,24 @@ robo.cmd up all
 robo.cmd down all
 ```
 
+한 서버만 수정했을 때 전체를 재시작할 필요가 없습니다. 프로필은 현재 실행한
+프로필과 맞추고 서비스 ID만 지정합니다.
+
+```cmd
+robo.cmd restart all -Service analyzer
+robo.cmd down all -Service catalog
+robo.cmd up all -Service catalog
+```
+
+`up`과 `restart`는 기존 프런트엔드/Electron 빌드 결과를 기본으로 재사용합니다.
+결과물이 없을 때만 자동 빌드하며, 소스를 수정해 강제로 다시 빌드할 때만
+`-Build`를 붙입니다.
+
+```cmd
+robo.cmd restart all
+robo.cmd restart all -Build
+```
+
 - Analyzer UI: `http://127.0.0.1:3000`
 - Architect UI: `http://127.0.0.1:5173`
 - API Gateway: `http://127.0.0.1:9000` (화면 주소가 아니라 두 UI의 API 경유지)
@@ -133,7 +151,7 @@ robo.cmd down all
 | `help` | 간단한 사용법 표시 | 명령이 기억나지 않을 때 |
 | `setup` | 저장소 clone + 의존성 설치 | PC마다 프로필별 최초 1회, 의존성이 바뀐 뒤 |
 | `doctor` | 실행 조건과 포트 검사 | `up` 전에 문제가 없는지 확인할 때 |
-| `up` | 빌드하고 모든 서비스를 시작 | 실제 실행할 때 |
+| `up` | 기존 빌드를 재사용하고 모든 서비스를 시작 | 실제 실행할 때 |
 | `restart` | 관리 중인 서비스를 종료하고 다시 시작 | Electron 창을 닫은 뒤 다시 띄울 때 |
 | `status` | 관리 중인 프로세스 상태 표시 | 제대로 떠 있는지 확인할 때 |
 | `logs` | 서비스별 최근 로그 표시 | 실행 실패 원인을 볼 때 |
@@ -187,7 +205,7 @@ robo.cmd setup architect-web
 ```cmd
 cd /d D:\work\robo\robo-workspace
 robo.cmd doctor architect-web
-robo.cmd up architect-web -SkipBuild
+robo.cmd up architect-web
 ```
 
 예상 결과:
@@ -204,11 +222,11 @@ robo.cmd logs architect-web
 robo.cmd down architect-web
 ```
 
-`-SkipBuild`는 방금 검증한 기존 프런트 빌드 결과를 재사용해 빠르게 띄우는
-옵션입니다. 프런트 소스를 수정했다면 옵션을 빼고 실행하십시오.
+프런트 소스를 수정해 Analyzer remote를 다시 만들어야 할 때만 `-Build`를
+붙입니다.
 
 ```cmd
-robo.cmd up architect-web
+robo.cmd up architect-web -Build
 ```
 
 `up`은 반복 실행해도 안전합니다. 서비스가 모두 살아 있으면 이미 실행 중이라고
@@ -220,7 +238,7 @@ robo.cmd up architect-web
 ```cmd
 cd /d D:\work\robo\robo-workspace
 robo.cmd doctor architect-electron
-robo.cmd up architect-electron -SkipBuild
+robo.cmd up architect-electron
 ```
 
 예상 결과:
@@ -240,7 +258,7 @@ robo.cmd down architect-electron
 Electron 창을 닫은 뒤 바로 다시 띄우려면 한 줄이면 됩니다.
 
 ```cmd
-robo.cmd restart architect-electron -SkipBuild
+robo.cmd restart architect-electron
 ```
 
 실수로 `up`을 다시 입력해도 stale 상태를 감지해 같은 방식으로 복구합니다.
@@ -249,18 +267,18 @@ robo.cmd restart architect-electron -SkipBuild
 포트가 남았다면, 명시적으로 해당 프로필 포트까지 정리한 뒤 재시작할 수 있습니다.
 
 ```cmd
-robo.cmd restart architect-electron -SkipBuild -ForcePorts
+robo.cmd restart architect-electron -ForcePorts
 ```
 
 `-ForcePorts`는 선택한 프로필의 서비스 포트 점유 프로세스까지 종료합니다. Neo4j와
 프로필 밖의 포트는 건드리지 않지만, 해당 포트에서 다른 작업을 수행 중이라면 함께
 종료될 수 있으므로 일반적인 재시작에서는 붙이지 않습니다.
 
-최신 소스로 프런트와 앱을 다시 빌드해 실행하려면 `-SkipBuild`를 뺍니다. 첫
+최신 소스로 프런트와 앱을 강제로 다시 빌드해 실행하려면 `-Build`를 붙입니다. 첫
 빌드는 약 1~3분 걸릴 수 있습니다.
 
 ```cmd
-robo.cmd up architect-electron
+robo.cmd up architect-electron -Build
 ```
 
 Architect 저장소에서도 같은 명령을 더 짧게 실행할 수 있습니다.
@@ -350,8 +368,8 @@ robo.cmd setup architect-electron
 - `sync`: 수정 중이 아닌 서비스 저장소만 안전하게 업데이트
 - `setup`: 새로 추가되거나 변경된 의존성을 다시 맞춤
 
-업데이트 후 첫 실행은 `-SkipBuild` 없이 수행해 최신 프런트와 Electron을
-패키징하는 것이 안전합니다.
+업데이트로 프런트 또는 Electron 소스가 바뀌었다면 첫 실행에 `-Build`를 붙여
+최신 산출물을 만드는 것이 안전합니다.
 
 ## 7. 포트와 서비스 배선
 
@@ -389,7 +407,7 @@ robo.cmd setup architect-electron
 `git pull --ff-only`로 확인한 뒤 다음 한 줄로 재시작할 수 있습니다.
 
 ```cmd
-robo.cmd restart <profile> -SkipBuild
+robo.cmd restart <profile>
 ```
 
 ### 서비스 readiness 실패

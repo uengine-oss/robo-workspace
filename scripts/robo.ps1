@@ -3,6 +3,8 @@ param(
   [Parameter(Position=0)][ValidateSet('help','setup','sync','doctor','up','restart','status','logs','down','build')][string]$Command = 'help',
   [Parameter(Position=1)][ValidateSet('analyzer','architect-web','architect-electron','all')][string]$Profile = 'analyzer',
   [Parameter(Position=2)][ValidateSet('unpacked','installer')][string]$Variant = 'unpacked',
+  [Alias('Service')][string]$ServiceId,
+  [switch]$Build,
   [switch]$SkipBuild,
   [switch]$SkipFrontend,
   [switch]$NoElectron,
@@ -67,8 +69,13 @@ Run and stop:
   robo.cmd down <profile>
   robo.cmd down all
 
+Control one service without touching the rest of the stack:
+  robo.cmd restart all -Service analyzer
+  robo.cmd down all -Service catalog
+  robo.cmd up all -Service catalog
+
 Port conflict recovery (also stops unrecorded listeners on profile ports):
-  robo.cmd restart <profile> -SkipBuild -ForcePorts
+  robo.cmd restart <profile> -ForcePorts
 
 Profiles:
   analyzer             Analyzer stack and UI (http://127.0.0.1:3000)
@@ -80,9 +87,9 @@ Electron packages:
   robo.cmd build architect-electron unpacked
   robo.cmd build architect-electron installer
 
-Fast restart using existing build output:
-  robo.cmd up architect-web -SkipBuild
-  robo.cmd up architect-electron -SkipBuild
+Existing build output is reused by default. Build only when requested or missing:
+  robo.cmd up architect-web
+  robo.cmd up architect-web -Build
 
 See README.md for explanations, a step-by-step tutorial, and troubleshooting.
 '@
@@ -219,7 +226,7 @@ function Doctor-Workspace {
     if($service.port){
       if(Test-Port([int]$service.port)){
         $owners=(Get-PortOwners([int]$service.port)) -join ','
-        Fail "$($service.id) port $($service.port) already in use by pid=$owners [ACTION] robo.cmd restart $Profile -SkipBuild -ForcePorts"
+        Fail "$($service.id) port $($service.port) already in use by pid=$owners [ACTION] robo.cmd restart $Profile -ForcePorts"
         $failed=$true
       }
       elseif(-not(Test-PortBindable([int]$service.port))){Fail "$($service.id) port $($service.port) cannot be bound (possibly Windows-reserved)";$failed=$true}
@@ -264,14 +271,22 @@ function Build-Desktop {
 }
 
 function Prepare-ProfileArtifacts {
-  if($SkipBuild){Warn 'artifact build skipped; existing build output will be used';return}
-  if($Profile -in @('architect-web','all')){Build-AnalyzerRemote}
-  if($Profile -eq 'architect-electron'){Build-Desktop}
+  if($SkipBuild){Warn '-SkipBuild is no longer needed; existing build output will be used';return}
+  if($Profile -in @('architect-web','all')){
+    $remoteEntry=Join-Path(Repo-Path(Find-Repo 'frontend'))'dist\assets\remoteEntry.js'
+    if($Build-or-not(Test-Path $remoteEntry)){Build-AnalyzerRemote}else{Pass 'reusing existing Analyzer remote build (use -Build to rebuild)'}
+  }
+  if($Profile -eq 'architect-electron'){
+    $desktopExe=Join-Path(Repo-Path(Find-Repo 'architect'))'desktop\out\dist\win-unpacked\Robo-Architect.exe'
+    if($Build-or-not(Test-Path $desktopExe)){Build-Desktop}else{Pass 'reusing existing Electron build (use -Build to rebuild)'}
+  }
 }
 
 function Save-State($Processes) {
   New-Item -ItemType Directory -Force -Path $RuntimeRoot | Out-Null
-  @($Processes)|ConvertTo-Json -Depth 5|Set-Content -Encoding UTF8 $StatePath
+  $items=@($Processes)
+  if($items.Count-eq 0){Remove-Item $StatePath -ErrorAction SilentlyContinue;return}
+  ConvertTo-Json -InputObject $items -Depth 5|Set-Content -Encoding UTF8 $StatePath
 }
 function Load-State {
   if(-not(Test-Path $StatePath)){return @()}
@@ -328,7 +343,13 @@ function Stop-VerifiedProcessTree([string]$EntryId,[int]$ProcessId,[string]$Star
 
 function Stop-Owned {
   $entries=@(Load-State)
-  foreach($entry in $entries){
+  Stop-StateEntries $entries
+  Remove-Item $StatePath -ErrorAction SilentlyContinue
+  Pass "$Profile stopped"
+}
+
+function Stop-StateEntries($Entries) {
+  foreach($entry in @($Entries)){
     $owned=@(Get-OwnedProcesses $entry)
     if($owned.Count-gt 0){
       $identities=@($owned|ForEach-Object{[pscustomobject]@{id=$_.Id;startedAt=$_.StartTime.ToString('o')}})
@@ -336,8 +357,6 @@ function Stop-Owned {
     }
     elseif($entry.pid){Warn "$($entry.id) already exited; stale pid was not touched"}
   }
-  Remove-Item $StatePath -ErrorAction SilentlyContinue
-  Pass "$Profile stopped"
 }
 
 function Set-ProfileContext([string]$Name) {
@@ -418,9 +437,79 @@ function Stop-ProfilePortListeners {
   }
 }
 
+function Stop-ServicePortListener($Service) {
+  if(-not $Service.port){return}
+  $port=[int]$Service.port
+  foreach($owner in @(Get-PortOwners $port)){
+    $process=Get-Process -Id ([int]$owner) -ErrorAction SilentlyContinue
+    $name=if($process){$process.ProcessName}else{'unknown'}
+    Warn "force stopping $($Service.id) port $port listener pid=$owner process=$name"
+    & taskkill.exe /PID $owner /T /F|Out-Null
+  }
+  $deadline=(Get-Date).AddSeconds(10)
+  while((Get-Date)-lt $deadline -and (Test-Port $port)){Start-Sleep -Milliseconds 200}
+  if(Test-Port $port){throw "$($Service.id) port $port remains in use after forced cleanup"}
+}
+
 function Expand-ServiceValue([string]$Value) {
   $architect=if(Find-Repo 'architect'){Repo-Path(Find-Repo 'architect')}else{''}
   return $Value.Replace('${ARCHITECT_DIR}',$architect)
+}
+
+function Get-SelectedService {
+  $match=@(Services|Where-Object id -eq $ServiceId)
+  if($match.Count-eq 0){
+    $available=(@(Services|ForEach-Object id)-join ', ')
+    throw "service '$ServiceId' is not in profile '$Profile'. Available: $available"
+  }
+  return $match[0]
+}
+
+function Assert-ServiceCanStart($Service) {
+  $repo=Find-Repo $Service.repo
+  if(-not $repo-or-not(Test-Path(Join-Path(Repo-Path $repo)'.git'))){throw "$($Service.repo) repository missing [ACTION] robo.cmd setup $Profile"}
+  $cwd=Join-Path(Repo-Path $repo)$Service.cwd
+  if($Service.file-match'[/\\]'){
+    $file=Join-Path $cwd $Service.file
+    if(-not(Test-Path $file)){throw "$($Service.id) executable missing: $file"}
+  }elseif(-not(Get-Command $Service.file -ErrorAction SilentlyContinue)){throw "$($Service.file) is not available"}
+  if($Service.port-and(Test-Port([int]$Service.port))){
+    $owners=(Get-PortOwners([int]$Service.port))-join ','
+    throw "$($Service.id) port $($Service.port) already in use by pid=$owners"
+  }
+}
+
+function Start-ConfiguredService($Service,$ExistingEntries) {
+  $repo=Find-Repo $Service.repo; $cwd=Join-Path(Repo-Path $repo)$Service.cwd
+  $file=if($Service.file-match'[/\\]'){Join-Path $cwd $Service.file}else{$Service.file}
+  $original=@{}
+  if($Service.env){foreach($property in $Service.env.PSObject.Properties){$original[$property.Name]=[Environment]::GetEnvironmentVariable($property.Name,'Process');$value=Expand-ServiceValue([string]$property.Value);[Environment]::SetEnvironmentVariable($property.Name,$value,'Process')}}
+  New-Item -ItemType Directory -Force -Path $LogRoot|Out-Null
+  $out=Join-Path $LogRoot "$($Service.id).out.log";$err=Join-Path $LogRoot "$($Service.id).err.log"
+  Info "starting $($Service.id)"
+  try{
+    $windowStyle=if($Service.windowStyle){[string]$Service.windowStyle}else{'Hidden'}
+    $startOptions=@{FilePath=$file;WorkingDirectory=$cwd;RedirectStandardOutput=$out;RedirectStandardError=$err;WindowStyle=$windowStyle;PassThru=$true}
+    $serviceArgs=@($Service.args|Where-Object{$_ -ne $null})
+    if($serviceArgs.Count-gt 0){$startOptions.ArgumentList=$serviceArgs}
+    $process=Start-Process @startOptions
+  }
+  finally{if($Service.env){foreach($property in $Service.env.PSObject.Properties){[Environment]::SetEnvironmentVariable($property.Name,$original[$property.Name],'Process')}}}
+  $rootStartedAt=$process.StartTime.ToString('o')
+  $entry=[pscustomobject]@{id=$Service.id;pid=$process.Id;rootPid=$process.Id;startedAt=$rootStartedAt;rootStartedAt=$rootStartedAt;listenerPid=$null;listenerStartedAt=$null;health=$Service.health;port=$Service.port}
+  Save-State @(@($ExistingEntries)+$entry)
+  if(-not(Wait-Service $Service $process)){throw "$($Service.id) failed readiness; see $err"}
+  if($Service.port){
+    $owner=Get-PortOwner([int]$Service.port)
+    if($owner){
+      $listener=Get-Process -Id ([int]$owner) -ErrorAction Stop
+      $entry.pid=$owner;$entry.listenerPid=$owner;$entry.listenerStartedAt=$listener.StartTime.ToString('o')
+      Save-State @(@($ExistingEntries)+$entry)
+    }
+  }
+  $ready=if($Service.health){$Service.health}else{"process pid=$($entry.pid)"}
+  Pass "$($Service.id) ready: $ready"
+  return $entry
 }
 
 function Start-Workspace {
@@ -429,7 +518,7 @@ function Start-Workspace {
     $stale=@($existing|Where-Object{-not(Get-OwnedProcess $_)})
     if($existing.Count-gt 0-and$stale.Count-eq 0){
       Pass "$Profile is already running"
-      Write-Host "Use: robo.cmd restart $Profile -SkipBuild"
+      Write-Host "Use: robo.cmd restart $Profile"
       return
     }
     Warn "stale $Profile state detected ($($stale.Count) exited service); cleaning owned processes before restart"
@@ -445,36 +534,9 @@ function Start-Workspace {
   $started=@()
   try{
     foreach($service in Services){
-      $repo=Find-Repo $service.repo; $cwd=Join-Path(Repo-Path $repo)$service.cwd
-      $file=if($service.file-match'[/\\]'){Join-Path $cwd $service.file}else{$service.file}
-      $original=@{}
-      if($service.env){foreach($property in $service.env.PSObject.Properties){$original[$property.Name]=[Environment]::GetEnvironmentVariable($property.Name,'Process');$value=Expand-ServiceValue([string]$property.Value);[Environment]::SetEnvironmentVariable($property.Name,$value,'Process')}}
-      $out=Join-Path $LogRoot "$($service.id).out.log";$err=Join-Path $LogRoot "$($service.id).err.log"
-      Info "starting $($service.id)"
-      try{
-        $windowStyle=if($service.windowStyle){[string]$service.windowStyle}else{'Hidden'}
-        $startOptions=@{FilePath=$file;WorkingDirectory=$cwd;RedirectStandardOutput=$out;RedirectStandardError=$err;WindowStyle=$windowStyle;PassThru=$true}
-        $serviceArgs=@($service.args|Where-Object{$_ -ne $null})
-        if($serviceArgs.Count-gt 0){$startOptions.ArgumentList=$serviceArgs}
-        $process=Start-Process @startOptions
-      }
-      finally{if($service.env){foreach($property in $service.env.PSObject.Properties){[Environment]::SetEnvironmentVariable($property.Name,$original[$property.Name],'Process')}}}
-      $rootStartedAt=$process.StartTime.ToString('o')
-      $entry=[pscustomobject]@{id=$service.id;pid=$process.Id;rootPid=$process.Id;startedAt=$rootStartedAt;rootStartedAt=$rootStartedAt;listenerPid=$null;listenerStartedAt=$null;health=$service.health;port=$service.port}
-      $started+=$entry;Save-State $started
-      if(-not(Wait-Service $service $process)){throw "$($service.id) failed readiness; see $err"}
-      if($service.port){
-        $owner=Get-PortOwner([int]$service.port)
-        if($owner){
-          $listener=Get-Process -Id ([int]$owner) -ErrorAction Stop
-          $entry.pid=$owner
-          $entry.listenerPid=$owner
-          $entry.listenerStartedAt=$listener.StartTime.ToString('o')
-          Save-State $started
-        }
-      }
-      $ready=if($service.health){$service.health}else{"process pid=$($entry.pid)"}
-      Pass "$($service.id) ready: $ready"
+      Assert-ServiceCanStart $service
+      $entry=Start-ConfiguredService $service $started
+      $started+=@($entry)
     }
   }catch{Fail $_;Stop-Owned;throw}
   Pass "$Profile started"
@@ -490,6 +552,43 @@ function Restart-Workspace {
   elseif(Test-Path $StatePath){Stop-Owned}
   if($ForcePorts){Stop-ProfilePortListeners}
   Start-Workspace
+}
+
+function Stop-SelectedService {
+  $service=Get-SelectedService
+  $entries=@(Load-State)
+  $selected=@($entries|Where-Object id -eq $service.id)
+  if($selected.Count-gt 0){Stop-StateEntries $selected}
+  else{Warn "$($service.id) is not recorded as running in profile $Profile"}
+  $remaining=@($entries|Where-Object id -ne $service.id)
+  Save-State $remaining
+  if($ForcePorts){Stop-ServicePortListener $service}
+  Pass "$($service.id) stopped; other services were left running"
+}
+
+function Start-SelectedService {
+  $service=Get-SelectedService
+  $entries=@(Load-State)
+  $selected=@($entries|Where-Object id -eq $service.id)
+  if(@($selected|Where-Object{Get-OwnedProcess $_}).Count-gt 0){Pass "$($service.id) is already running";return}
+  if($selected.Count-gt 0){Warn "removing stale $($service.id) state"}
+  $remaining=@($entries|Where-Object id -ne $service.id)
+  Save-State $remaining
+  if($ForcePorts){Stop-ServicePortListener $service}
+  Assert-ServiceCanStart $service
+  try{[void](Start-ConfiguredService $service $remaining)}
+  catch{
+    $failed=@(Load-State|Where-Object id -eq $service.id)
+    Stop-StateEntries $failed
+    Save-State $remaining
+    throw
+  }
+  Pass "$($service.id) started; other services were left running"
+}
+
+function Restart-SelectedService {
+  Stop-SelectedService
+  Start-SelectedService
 }
 
 function Show-Status {
@@ -509,11 +608,11 @@ if($env:ROBO_WORKSPACE_TEST_MODE-ne'1'){
     'setup'{Setup-Workspace}
     'sync'{Sync-Workspace}
     'doctor'{Doctor-Workspace}
-    'up'{Start-Workspace}
-    'restart'{Restart-Workspace}
+    'up'{if($ServiceId){Start-SelectedService}else{Start-Workspace}}
+    'restart'{if($ServiceId){Restart-SelectedService}else{Restart-Workspace}}
     'status'{Show-Status}
     'logs'{Show-Logs}
-    'down'{if($Profile-eq'all'){Stop-AllProfiles}else{Stop-Owned;if($ForcePorts){Stop-ProfilePortListeners}}}
+    'down'{if($ServiceId){Stop-SelectedService}elseif($Profile-eq'all'){Stop-AllProfiles}else{Stop-Owned;if($ForcePorts){Stop-ProfilePortListeners}}}
     'build'{Build-Desktop}
   }
 }

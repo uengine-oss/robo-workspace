@@ -12,6 +12,8 @@
 - [x] T009 Add and isolate-test one-command shutdown with `down all`.
 - [x] T010 Add a complete local browser stack with `up all`.
 - [x] T011 Fail before startup on invalid Neo4j credentials and use deep Catalog readiness.
+- [x] T012 Add isolated service-level up/down/restart without rebuilding or
+  disturbing the rest of the stack.
 
 ## Evidence (2026-07-14)
 
@@ -30,3 +32,5 @@
   `all-state.json`; Analyzer UI 3000, Architect UI 5173, Gateway 9000, direct
   Catalog, Gateway-routed Catalog, and Architect-proxied Catalog all returned
   HTTP 200.
+- An isolated synthetic listener passed service-level start, restart with a new
+  verified launcher identity, and stop with state cleanup.

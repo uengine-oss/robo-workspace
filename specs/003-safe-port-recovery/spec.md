@@ -28,6 +28,11 @@ current Workspace state.
 - Port conflicts report the owning PID and an actionable recovery command.
 - Doctor verifies Neo4j credentials, and Catalog readiness performs a real
   Neo4j-backed request instead of accepting a shallow process-only health check.
+- `up|down|restart <profile> -Service <id>` changes only that recorded service
+  and preserves every other running service in the profile state.
+- Existing frontend and Electron artifacts are reused by default. `-Build`
+  explicitly refreshes them, while a missing required artifact is built
+  automatically.
 
 ## Failure and boundary scenarios
 
@@ -39,3 +44,5 @@ current Workspace state.
   fail visibly if the port remains occupied.
 - Tests must use isolated temporary state and ports and must not stop the user's
   currently running Architect stack.
+- A selected-service restart must replace only its verified process identity;
+  selected-service down must leave no empty state file.

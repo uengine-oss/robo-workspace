@@ -62,6 +62,30 @@ try {
   Assert-True (@(Services|Where-Object id -eq 'architect-electron').Count-eq 0) 'all profile unexpectedly included Electron'
   $Profile='analyzer'
 
+  $originalConfig=$Config
+  $originalProjectRoot=$ProjectRoot
+  $servicePort=Get-FreePort
+  $Config=[pscustomobject]@{
+    repositories=@([pscustomobject]@{id='workspace';path='robo-workspace';profiles=@('analyzer')})
+    services=@([pscustomobject]@{id='test-service';repo='workspace';cwd='.';file='powershell.exe';args=@('-NoProfile','-ExecutionPolicy','Bypass','-File',$Fixture,'-Port',$servicePort);port=$servicePort;readyDelay=1;profiles=@('analyzer')})
+  }
+  $ProjectRoot=Split-Path $WorkspaceRoot -Parent
+  $ServiceId='test-service'
+  $LogRoot=Join-Path $TestRuntime 'logs\analyzer'
+  Start-SelectedService
+  $firstEntry=@(Load-State|Where-Object id -eq 'test-service')[0]
+  Assert-True ([bool](Get-OwnedProcess $firstEntry)) 'selected service did not start'
+  Restart-SelectedService
+  $secondEntry=@(Load-State|Where-Object id -eq 'test-service')[0]
+  Assert-True ([bool](Get-OwnedProcess $secondEntry)) 'selected service did not restart'
+  Assert-True ($firstEntry.rootPid-ne$secondEntry.rootPid) 'selected service restart reused the old launcher'
+  Stop-SelectedService
+  Assert-True (-not(Test-Port $servicePort)) 'selected service down left its port open'
+  Assert-True (-not(Test-Path $StatePath)) 'selected service down left an empty state file'
+  $Config=$originalConfig
+  $ProjectRoot=$originalProjectRoot
+  $ServiceId=$null
+
   $tree=Start-TestListenerTree
   $rootStartedAt=$tree.Root.StartTime.ToString('o')
   $listenerStartedAt=$tree.Listener.StartTime.ToString('o')
