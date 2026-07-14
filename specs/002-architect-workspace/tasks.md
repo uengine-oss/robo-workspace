@@ -8,6 +8,16 @@
 - [x] T006 Replace Architect dev/build scripts with workspace wrappers.
 - [x] T007 Update workspace and Architect documentation.
 - [x] T008 Verify web, Electron, package, failure, rollback, and shutdown scenarios.
+- [x] T009 Make repeated `up` idempotent and add one-command `restart`.
+- [x] T010 Verify live-state no-op, stale Electron recovery, and explicit restart.
+
+Additional evidence: with five shared services live and Electron exited, `up
+architect-electron -SkipBuild` detected one stale service, stopped the recorded
+trees, and reopened a visible Electron window. Repeating `up` returned success
+without rebuilding or replacing the live process. `restart` composes the same
+verified owned-stop and start paths.
+- [x] T011 Initialize and diagnose the required `open-pencil` submodule without
+  duplicating Analyzer repositories under Architect.
 
 ## Evidence (2026-07-14)
 

@@ -10,6 +10,8 @@ services in independent sibling Git repositories.
 
 - `robo.cmd setup architect-web|architect-electron` clones and installs every
   repository needed by that profile.
+- Architect setup initializes only its required `open-pencil` submodule; shared
+  Analyzer services continue to use canonical sibling repositories.
 - `robo.cmd up architect-web` builds and serves the Analyzer federation remote,
   then starts the five shared services, Architect API, and Architect host UI.
 - `robo.cmd up architect-electron` builds the unpacked app, starts the five
@@ -31,5 +33,8 @@ services in independent sibling Git repositories.
   already started for that profile.
 - Dirty repositories are never overwritten by `sync`.
 - Electron readiness is process-based; HTTP services use actual health URLs.
+- Repeated `up` is idempotent. A fully live profile returns success; a partially
+  exited/stale profile stops only its recorded process trees and starts cleanly.
+- `restart` provides an explicit one-command stop/start flow.
 - Packaging is a development package until the Python backend runtime is
   bundled; the built app is verified with `ROBO_BACKEND_DIR` in this checkout.

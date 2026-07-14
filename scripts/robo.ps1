@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-  [Parameter(Position=0)][ValidateSet('help','setup','sync','doctor','up','status','logs','down','build')][string]$Command = 'help',
+  [Parameter(Position=0)][ValidateSet('help','setup','sync','doctor','up','restart','status','logs','down','build')][string]$Command = 'help',
   [Parameter(Position=1)][ValidateSet('analyzer','architect-web','architect-electron')][string]$Profile = 'analyzer',
   [Parameter(Position=2)][ValidateSet('unpacked','installer')][string]$Variant = 'unpacked',
   [switch]$SkipBuild,
@@ -56,6 +56,7 @@ First-time setup:
 
 Run and stop:
   robo.cmd up <profile>
+  robo.cmd restart <profile>
   robo.cmd status <profile>
   robo.cmd logs <profile>
   robo.cmd down <profile>
@@ -124,6 +125,11 @@ function Setup-Workspace {
   Setup-Node (Repo-Path (Find-Repo 'frontend'))
   if (Is-ArchitectProfile) {
     $architect=Repo-Path (Find-Repo 'architect')
+    $openPencil=Join-Path $architect 'open-pencil'
+    if(-not(Test-Path(Join-Path $openPencil '.git'))){
+      Info 'initializing required Architect submodule: open-pencil'
+      Invoke-Checked 'git' @('submodule','update','--init','--recursive','--','open-pencil') $architect
+    }else{Pass 'open-pencil already initialized'}
     Info 'installing Architect Python dependencies'
     Invoke-Checked 'uv.exe' @('sync') $architect
     Setup-Node (Join-Path $architect 'frontend')
@@ -145,6 +151,10 @@ function Sync-Workspace {
     Invoke-Checked 'git' @('-C',$path,'fetch','origin',$repo.branch) $WorkspaceRoot
     Invoke-Checked 'git' @('-C',$path,'pull','--ff-only','origin',$repo.branch) $WorkspaceRoot
     Pass "$($repo.id): synced"
+  }
+  if(Is-ArchitectProfile){
+    $openPencil=Join-Path(Repo-Path(Find-Repo 'architect'))'open-pencil\package.json'
+    if(Test-Path $openPencil){Pass 'Architect open-pencil submodule'}else{Fail 'Architect open-pencil missing [ACTION] robo.cmd setup architect-electron';$failed=$true}
   }
 }
 
@@ -234,12 +244,26 @@ function Load-State {
   $state|ForEach-Object{$_}
 }
 
+function Get-OwnedProcess($Entry) {
+  $candidateIds=@($Entry.rootPid,$Entry.pid)|Where-Object{$_}|Select-Object -Unique
+  foreach($candidateId in $candidateIds){
+    $process=Get-Process -Id ([int]$candidateId) -ErrorAction SilentlyContinue
+    if(-not $process){continue}
+    if(-not $Entry.startedAt){return $process}
+    try{
+      $expected=[DateTimeOffset]::Parse([string]$Entry.startedAt).LocalDateTime
+      if([Math]::Abs(($process.StartTime-$expected).TotalSeconds)-le 300){return $process}
+    }catch{continue}
+  }
+  return $null
+}
+
 function Stop-Owned {
   $entries=@(Load-State)
   foreach($entry in $entries){
-    $target=if($entry.rootPid){[int]$entry.rootPid}else{[int]$entry.pid}
-    if(Get-Process -Id $target -ErrorAction SilentlyContinue){Info "stopping $($entry.id) tree pid=$target";& taskkill.exe /PID $target /T /F|Out-Null}
-    elseif($entry.pid -and (Get-Process -Id $entry.pid -ErrorAction SilentlyContinue)){Info "stopping $($entry.id) pid=$($entry.pid)";& taskkill.exe /PID $entry.pid /T /F|Out-Null}
+    $process=Get-OwnedProcess $entry
+    if($process){Info "stopping $($entry.id) tree pid=$($process.Id)";& taskkill.exe /PID $process.Id /T /F|Out-Null}
+    elseif($entry.pid){Warn "$($entry.id) already exited; stale pid was not touched"}
   }
   Remove-Item $StatePath -ErrorAction SilentlyContinue
   Pass "$Profile stopped"
@@ -271,7 +295,17 @@ function Expand-ServiceValue([string]$Value) {
 }
 
 function Start-Workspace {
-  if(Test-Path $StatePath){throw 'state already exists; run down or status first'}
+  if(Test-Path $StatePath){
+    $existing=@(Load-State)
+    $stale=@($existing|Where-Object{-not(Get-OwnedProcess $_)})
+    if($existing.Count-gt 0-and$stale.Count-eq 0){
+      Pass "$Profile is already running"
+      Write-Host "Use: robo.cmd restart $Profile -SkipBuild"
+      return
+    }
+    Warn "stale $Profile state detected ($($stale.Count) exited service); cleaning owned processes before restart"
+    Stop-Owned
+  }
   Doctor-Workspace
   Prepare-ProfileArtifacts
   New-Item -ItemType Directory -Force -Path $LogRoot|Out-Null
@@ -292,7 +326,7 @@ function Start-Workspace {
         $process=Start-Process @startOptions
       }
       finally{if($service.env){foreach($property in $service.env.PSObject.Properties){[Environment]::SetEnvironmentVariable($property.Name,$original[$property.Name],'Process')}}}
-      $entry=[pscustomobject]@{id=$service.id;pid=$process.Id;rootPid=$process.Id;startedAt=(Get-Date).ToString('o');health=$service.health;port=$service.port}
+      $entry=[pscustomobject]@{id=$service.id;pid=$process.Id;rootPid=$process.Id;startedAt=$process.StartTime.ToString('o');health=$service.health;port=$service.port}
       $started+=$entry;Save-State $started
       if(-not(Wait-Service $service $process)){throw "$($service.id) failed readiness; see $err"}
       if($service.port){$owner=Get-PortOwner([int]$service.port);if($owner){$entry.pid=$owner;Save-State $started}}
@@ -307,10 +341,15 @@ function Start-Workspace {
   else{Write-Host 'Electron is running. Use robo.cmd down architect-electron to stop the owned stack.'}
 }
 
+function Restart-Workspace {
+  if(Test-Path $StatePath){Stop-Owned}
+  Start-Workspace
+}
+
 function Show-Status {
   $state=@(Load-State)
   if($state.Count-eq 0){Warn "$Profile is not managed as running";return}
-  foreach($entry in $state){$process=Get-Process -Id $entry.pid -ErrorAction SilentlyContinue;if($process){Pass "$($entry.id) pid=$($entry.pid) running"}else{Fail "$($entry.id) pid=$($entry.pid) exited"}}
+  foreach($entry in $state){$process=Get-OwnedProcess $entry;if($process){Pass "$($entry.id) pid=$($process.Id) running"}else{Fail "$($entry.id) exited (stale state)"}}
 }
 function Show-Logs {
   if(-not(Test-Path $LogRoot)){Warn 'no logs';return}
@@ -324,6 +363,7 @@ switch($Command){
   'sync'{Sync-Workspace}
   'doctor'{Doctor-Workspace}
   'up'{Start-Workspace}
+  'restart'{Restart-Workspace}
   'status'{Show-Status}
   'logs'{Show-Logs}
   'down'{Stop-Owned}
