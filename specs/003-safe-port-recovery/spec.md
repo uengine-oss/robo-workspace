@@ -33,6 +33,9 @@ current Workspace state.
 - Existing frontend and Electron artifacts are reused by default. `-Build`
   explicitly refreshes them, while a missing required artifact is built
   automatically.
+- Workspace launch derives Architect's `ANALYZER_NEO4J_DATABASE` from the
+  Analyzer-owned `ROBO_NEO4J_DATABASE`, so both always address the same single
+  graph database without modifying repository-local `.env` files.
 
 ## Failure and boundary scenarios
 
@@ -46,3 +49,5 @@ current Workspace state.
   currently running Architect stack.
 - A selected-service restart must replace only its verified process identity;
   selected-service down must leave no empty state file.
+- A conflicting pre-existing `ANALYZER_NEO4J_DATABASE` must not override the
+  Workspace Analyzer database during a Workspace launch.

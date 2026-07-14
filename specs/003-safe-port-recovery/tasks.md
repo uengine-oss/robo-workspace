@@ -14,6 +14,8 @@
 - [x] T011 Fail before startup on invalid Neo4j credentials and use deep Catalog readiness.
 - [x] T012 Add isolated service-level up/down/restart without rebuilding or
   disturbing the rest of the stack.
+- [x] T013 Make Architect's Analyzer database inherit the Workspace Analyzer
+  database and cover conflicting inherited environment state.
 
 ## Evidence (2026-07-14)
 
@@ -34,3 +36,5 @@
   HTTP 200.
 - An isolated synthetic listener passed service-level start, restart with a new
   verified launcher identity, and stop with state cleanup.
+- `tests/environment-contract.ps1` proved that a conflicting Architect
+  `ANALYZER_NEO4J_DATABASE` is replaced by the Workspace Analyzer database.

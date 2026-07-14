@@ -135,6 +135,11 @@ robo.cmd up all -Service catalog
 결과물이 없을 때만 자동 빌드하며, 소스를 수정해 강제로 다시 빌드할 때만
 `-Build`를 붙입니다.
 
+Workspace로 실행한 서비스는 `robo-workspace/.env`의
+`ROBO_NEO4J_DATABASE`를 공통 DB로 사용합니다. Architect가 Analyzer 그래프를 읽을
+때 사용하는 `ANALYZER_NEO4J_DATABASE`도 같은 값으로 자동 전달하며, 각 저장소의
+`.env` 파일 자체는 수정하지 않습니다.
+
 ```cmd
 robo.cmd restart all
 robo.cmd restart all -Build

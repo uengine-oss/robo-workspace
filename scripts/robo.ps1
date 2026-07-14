@@ -31,6 +31,11 @@ function Import-WorkspaceEnvironment {
     $source=[Environment]::GetEnvironmentVariable("ROBO_NEO4J_$name",'Process')
     if ($source -and -not [Environment]::GetEnvironmentVariable("NEO4J_$name",'Process')) { [Environment]::SetEnvironmentVariable("NEO4J_$name",$source,'Process') }
   }
+  $analyzerDatabase=[Environment]::GetEnvironmentVariable('ROBO_NEO4J_DATABASE','Process')
+  if($analyzerDatabase){
+    # Architect's analyzer-graph reader must use the same single DB as Analyzer.
+    [Environment]::SetEnvironmentVariable('ANALYZER_NEO4J_DATABASE',$analyzerDatabase,'Process')
+  }
 }
 Import-WorkspaceEnvironment
 
