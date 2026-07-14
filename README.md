@@ -140,6 +140,15 @@ Workspace로 실행한 서비스는 `robo-workspace/.env`의
 때 사용하는 `ANALYZER_NEO4J_DATABASE`도 같은 값으로 자동 전달하며, 각 저장소의
 `.env` 파일 자체는 수정하지 않습니다.
 
+`robo.cmd` 통합 실행에서는 Workspace의 `ROBO_NEO4J_URI/USER/PASSWORD/DATABASE`가
+절대 기준입니다. 실행한 터미널이나 각 저장소 `.env`에 다른 `NEO4J_*` 값이 있어도
+자식 서비스에는 Workspace 값이 전달됩니다. 시작 점검에는 비밀번호를 제외한 최종
+DB 이름과 설정 출처가 표시됩니다. 현재 기본 DB는 `neo4j`입니다.
+
+단, Electron에서 사용자가 선택한 Neo4j 연결은 요청마다 `X-Neo4j-*` 헤더로
+전달되며 Workspace 기본값보다 우선합니다. Workspace는 이 요청별 선택을 변경하거나
+파일에 저장하지 않습니다. 헤더가 없는 웹/CLI 요청만 Workspace 기본값을 사용합니다.
+
 ```cmd
 robo.cmd restart all
 robo.cmd restart all -Build

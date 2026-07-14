@@ -19,25 +19,57 @@ $LogRoot = Join-Path $RuntimeRoot "logs\$Profile"
 $StatePath = Join-Path $RuntimeRoot "$Profile-state.json"
 $Config = Get-Content -Raw -Encoding UTF8 (Join-Path $WorkspaceRoot 'workspace.json') | ConvertFrom-Json
 
-function Import-WorkspaceEnvironment {
-  $envPath = Join-Path $WorkspaceRoot '.env'
-  if (-not (Test-Path $envPath)) { return }
-  foreach ($line in Get-Content -Encoding UTF8 $envPath) {
+function Read-EnvironmentFile([string]$Path) {
+  $values=@{}
+  if (-not (Test-Path $Path)) { return $values }
+  foreach ($line in Get-Content -Encoding UTF8 $Path) {
     if ($line -match '^\s*#' -or $line -notmatch '^\s*([^=]+)=(.*)$') { continue }
     $name=$Matches[1].Trim(); $value=$Matches[2].Trim()
-    if (-not [Environment]::GetEnvironmentVariable($name,'Process')) { [Environment]::SetEnvironmentVariable($name,$value,'Process') }
+    $values[$name]=$value
   }
-  foreach ($name in @('URI','USER','PASSWORD','DATABASE')) {
-    $source=[Environment]::GetEnvironmentVariable("ROBO_NEO4J_$name",'Process')
-    if ($source -and -not [Environment]::GetEnvironmentVariable("NEO4J_$name",'Process')) { [Environment]::SetEnvironmentVariable("NEO4J_$name",$source,'Process') }
+  return $values
+}
+
+function Import-WorkspaceEnvironment([string]$Path=(Join-Path $WorkspaceRoot '.env')) {
+  $values=Read-EnvironmentFile $Path
+  foreach($name in $values.Keys){
+    if(-not [Environment]::GetEnvironmentVariable($name,'Process')){
+      [Environment]::SetEnvironmentVariable($name,$values[$name],'Process')
+    }
   }
-  $analyzerDatabase=[Environment]::GetEnvironmentVariable('ROBO_NEO4J_DATABASE','Process')
-  if($analyzerDatabase){
-    # Architect's analyzer-graph reader must use the same single DB as Analyzer.
-    [Environment]::SetEnvironmentVariable('ANALYZER_NEO4J_DATABASE',$analyzerDatabase,'Process')
+
+  # Shared Neo4j is a Workspace-owned contract. Repository .env files and
+  # inherited shell values must not split integrated services across databases.
+  foreach($suffix in @('URI','USER','PASSWORD','DATABASE')){
+    $workspaceName="ROBO_NEO4J_$suffix"
+    if(-not $values.ContainsKey($workspaceName)){continue}
+    $value=[string]$values[$workspaceName]
+    [Environment]::SetEnvironmentVariable($workspaceName,$value,'Process')
+    [Environment]::SetEnvironmentVariable("NEO4J_$suffix",$value,'Process')
+  }
+  if($values.ContainsKey('ROBO_NEO4J_DATABASE')){
+    [Environment]::SetEnvironmentVariable('ANALYZER_NEO4J_DATABASE',[string]$values['ROBO_NEO4J_DATABASE'],'Process')
   }
 }
 Import-WorkspaceEnvironment
+
+function Get-WorkspaceNeo4jConfigurationErrors([string]$Path=(Join-Path $WorkspaceRoot '.env')) {
+  if(-not(Test-Path $Path)){return @("Workspace environment file missing: $Path")}
+  $values=Read-EnvironmentFile $Path
+  $errors=@()
+  foreach($suffix in @('URI','USER','PASSWORD','DATABASE')){
+    $name="ROBO_NEO4J_$suffix"
+    if(-not $values.ContainsKey($name)-or[String]::IsNullOrWhiteSpace([string]$values[$name])){
+      $errors+="$name is missing or empty in $Path"
+    }
+  }
+  return @($errors)
+}
+
+function Assert-WorkspaceNeo4jConfiguration {
+  $errors=@(Get-WorkspaceNeo4jConfigurationErrors)
+  if($errors.Count-gt 0){throw ($errors-join '; ')}
+}
 
 function Info([string]$Message) { Write-Host "[INFO] $Message" -ForegroundColor Cyan }
 function Pass([string]$Message) { Write-Host "[ OK ] $Message" -ForegroundColor Green }
@@ -212,6 +244,11 @@ function Test-Neo4jAuthentication {
   return $LASTEXITCODE-eq 0
 }
 
+function Show-SharedNeo4jTarget {
+  $database=[Environment]::GetEnvironmentVariable('ROBO_NEO4J_DATABASE','Process')
+  if($database){Pass "shared Neo4j database=$database (source=robo-workspace/.env)"}
+}
+
 function Doctor-Workspace {
   $failed=$false
   $tools=@('git','python','java','node','npm.cmd')
@@ -222,6 +259,8 @@ function Doctor-Workspace {
   foreach ($repo in Repositories) {
     if(Test-Path(Join-Path(Repo-Path $repo)'.git')){Pass "$($repo.id) repository"}else{Fail "$($repo.id) missing [ACTION] robo.cmd setup $Profile";$failed=$true}
   }
+  $neo4jConfigErrors=@(Get-WorkspaceNeo4jConfigurationErrors)
+  foreach($errorMessage in $neo4jConfigErrors){Fail "$errorMessage [ACTION] configure robo-workspace\.env";$failed=$true}
   foreach ($service in Services) {
     $repo=Find-Repo $service.repo; $cwd=Join-Path(Repo-Path $repo)$service.cwd
     if($service.file -match '[/\\]'){
@@ -238,10 +277,10 @@ function Doctor-Workspace {
     }
   }
   if(-not(Test-Port 7687)){Fail 'Neo4j port 7687 is not listening';$failed=$true}
-  elseif(-not[Environment]::GetEnvironmentVariable('NEO4J_PASSWORD','Process')){Fail 'Neo4j password missing [ACTION] set ROBO_NEO4J_PASSWORD in robo-workspace\.env';$failed=$true}
-  elseif(-not(Test-Neo4jAuthentication)){Fail 'Neo4j authentication failed [ACTION] verify ROBO_NEO4J_* in robo-workspace\.env';$failed=$true}
-  else{Pass 'Neo4j authentication'}
+  elseif($neo4jConfigErrors.Count-eq 0-and-not(Test-Neo4jAuthentication)){Fail 'Neo4j authentication failed [ACTION] verify ROBO_NEO4J_* in robo-workspace\.env';$failed=$true}
+  elseif($neo4jConfigErrors.Count-eq 0){Pass 'Neo4j authentication'}
   if($failed){throw 'doctor found blocking problems'}
+  Show-SharedNeo4jTarget
   Pass "$Profile is ready"
 }
 
@@ -572,6 +611,7 @@ function Stop-SelectedService {
 }
 
 function Start-SelectedService {
+  Assert-WorkspaceNeo4jConfiguration
   $service=Get-SelectedService
   $entries=@(Load-State)
   $selected=@($entries|Where-Object id -eq $service.id)
@@ -580,6 +620,7 @@ function Start-SelectedService {
   $remaining=@($entries|Where-Object id -ne $service.id)
   Save-State $remaining
   if($ForcePorts){Stop-ServicePortListener $service}
+  Show-SharedNeo4jTarget
   Assert-ServiceCanStart $service
   try{[void](Start-ConfiguredService $service $remaining)}
   catch{
@@ -592,6 +633,7 @@ function Start-SelectedService {
 }
 
 function Restart-SelectedService {
+  Assert-WorkspaceNeo4jConfiguration
   Stop-SelectedService
   Start-SelectedService
 }

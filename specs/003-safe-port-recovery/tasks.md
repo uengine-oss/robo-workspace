@@ -16,6 +16,10 @@
   disturbing the rest of the stack.
 - [x] T013 Make Architect's Analyzer database inherit the Workspace Analyzer
   database and cover conflicting inherited environment state.
+- [x] T014 Make all shared Neo4j fields strictly Workspace-owned, expose the
+  effective non-secret database, and cover full-family shell conflicts.
+- [x] T015 Reject missing/partial central configuration before full or selected
+  service startup can mutate the running stack.
 
 ## Evidence (2026-07-14)
 
@@ -38,3 +42,9 @@
   verified launcher identity, and stop with state cleanup.
 - `tests/environment-contract.ps1` proved that a conflicting Architect
   `ANALYZER_NEO4J_DATABASE` is replaced by the Workspace Analyzer database.
+- The same environment contract test injects conflicting values for both naming
+  families and verifies URI, user, password, and `neo4j` database are replaced
+  atomically from a safe fixture.
+- Fabric and Architect request-context tests passed, confirming Electron's
+  `X-Neo4j-*` connection remains higher priority than the server fallback and
+  is cleared between requests.

@@ -36,6 +36,16 @@ current Workspace state.
 - Workspace launch derives Architect's `ANALYZER_NEO4J_DATABASE` from the
   Analyzer-owned `ROBO_NEO4J_DATABASE`, so both always address the same single
   graph database without modifying repository-local `.env` files.
+- All four Workspace `ROBO_NEO4J_*` values override inherited `ROBO_NEO4J_*`
+  and `NEO4J_*` values for integrated child processes. Service-specific,
+  non-Neo4j environment remains repository-owned.
+- Doctor and selected-service startup display the effective shared database and
+  its Workspace source without printing credentials.
+- Full and selected-service startup reject a missing Workspace `.env` or any
+  empty shared Neo4j field before replacing an existing service process.
+- Workspace values are only the server fallback. Electron's per-request
+  `X-Neo4j-*` connection override remains higher priority and is not rewritten
+  or persisted by Workspace.
 
 ## Failure and boundary scenarios
 
@@ -51,3 +61,9 @@ current Workspace state.
   selected-service down must leave no empty state file.
 - A conflicting pre-existing `ANALYZER_NEO4J_DATABASE` must not override the
   Workspace Analyzer database during a Workspace launch.
+- Conflicting inherited URI, user, password, and database values must all be
+  replaced together; partial mixing is forbidden.
+- Missing central configuration must fail visibly instead of falling back to
+  inherited shell or repository-local Neo4j values.
+- Strict server defaults must not suppress Electron request-scoped connection
+  selection; requests without headers return to the Workspace fallback.
