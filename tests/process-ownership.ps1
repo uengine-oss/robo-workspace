@@ -1,6 +1,7 @@
 $ErrorActionPreference='Stop'
 $WorkspaceRoot=(Resolve-Path(Join-Path $PSScriptRoot '..')).Path
 $Fixture=Join-Path $PSScriptRoot 'fixtures\tcp-listener.ps1'
+$ParentFixture=Join-Path $PSScriptRoot 'fixtures\tcp-listener-parent.ps1'
 $TestRuntime=Join-Path $WorkspaceRoot '_runs\process-ownership'
 $previousTestMode=$env:ROBO_WORKSPACE_TEST_MODE
 $children=@()
@@ -25,6 +26,22 @@ function Start-TestListener {
   return [pscustomobject]@{Port=$port;Process=$process}
 }
 
+function Start-TestListenerTree {
+  $port=Get-FreePort
+  $root=Start-Process powershell.exe -ArgumentList @('-NoProfile','-ExecutionPolicy','Bypass','-File',$ParentFixture,'-Port',$port,'-ChildScript',$Fixture) -WindowStyle Hidden -PassThru
+  $script:children+=$root
+  $deadline=(Get-Date).AddSeconds(10)
+  $owner=$null
+  while((Get-Date)-lt $deadline -and -not $owner){
+    $owner=Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue|Select-Object -First 1 -ExpandProperty OwningProcess
+    if(-not $owner){Start-Sleep -Milliseconds 100}
+  }
+  Assert-True ([bool]$owner) "listener tree did not open port $port"
+  $listener=Get-Process -Id $owner -ErrorAction Stop
+  $script:children+=$listener
+  return [pscustomobject]@{Port=$port;Root=$root;Listener=$listener}
+}
+
 function Assert-Exited($Process,[string]$Message){
   $deadline=(Get-Date).AddSeconds(10)
   while((Get-Date)-lt $deadline -and (Get-Process -Id $Process.Id -ErrorAction SilentlyContinue)){Start-Sleep -Milliseconds 100}
@@ -38,6 +55,14 @@ try {
   $StatePath=Join-Path $RuntimeRoot 'analyzer-state.json'
   $Profile='analyzer'
   New-Item -ItemType Directory -Force -Path $RuntimeRoot|Out-Null
+
+  $tree=Start-TestListenerTree
+  $rootStartedAt=$tree.Root.StartTime.ToString('o')
+  $listenerStartedAt=$tree.Listener.StartTime.ToString('o')
+  Save-State @([pscustomobject]@{id='owned-tree';pid=$tree.Listener.Id;rootPid=$tree.Root.Id;startedAt=$rootStartedAt;rootStartedAt=$rootStartedAt;listenerPid=$tree.Listener.Id;listenerStartedAt=$listenerStartedAt;port=$tree.Port})
+  Stop-Owned
+  Assert-Exited $tree.Root 'owned launcher survived tree cleanup'
+  Assert-Exited $tree.Listener 'owned listener survived tree cleanup'
 
   $owned=Start-TestListener
   $startedAt=$owned.Process.StartTime.ToString('o')

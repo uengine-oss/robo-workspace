@@ -289,14 +289,28 @@ function Get-OwnedProcess($Entry) {
   return $null
 }
 
+function Stop-VerifiedProcessTree([string]$EntryId,[int]$ProcessId,[string]$StartedAt) {
+  if(-not(Get-ProcessByIdentity $ProcessId $StartedAt)){return}
+  Info "stopping $EntryId tree pid=$ProcessId"
+  $taskkillOutput=@(& taskkill.exe /PID $ProcessId /T /F 2>&1)
+  $taskkillExit=$LASTEXITCODE
+  $deadline=(Get-Date).AddSeconds(10)
+  while((Get-Date)-lt $deadline -and (Get-ProcessByIdentity $ProcessId $StartedAt)){
+    Start-Sleep -Milliseconds 100
+  }
+  if(Get-ProcessByIdentity $ProcessId $StartedAt){
+    $detail=($taskkillOutput|ForEach-Object{"$_"}) -join ' '
+    throw "$EntryId pid=$ProcessId remained after taskkill exit=$taskkillExit output=$detail"
+  }
+}
+
 function Stop-Owned {
   $entries=@(Load-State)
   foreach($entry in $entries){
     $owned=@(Get-OwnedProcesses $entry)
     if($owned.Count-gt 0){
-      foreach($process in $owned){
-        if(Get-Process -Id $process.Id -ErrorAction SilentlyContinue){Info "stopping $($entry.id) tree pid=$($process.Id)";& taskkill.exe /PID $process.Id /T /F|Out-Null}
-      }
+      $identities=@($owned|ForEach-Object{[pscustomobject]@{id=$_.Id;startedAt=$_.StartTime.ToString('o')}})
+      foreach($identity in $identities){Stop-VerifiedProcessTree $entry.id $identity.id $identity.startedAt}
     }
     elseif($entry.pid){Warn "$($entry.id) already exited; stale pid was not touched"}
   }
