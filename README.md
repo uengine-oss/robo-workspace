@@ -107,9 +107,9 @@ robo.cmd down architect-electron
 | 프로필 | 실행되는 것 | 결과 |
 |---|---|---|
 | `analyzer` | parser, Analyzer, catalog, data-fabric, Gateway, Analyzer UI | 브라우저 `http://127.0.0.1:3000` |
-| `architect-web` | 공통 백엔드 5종, Analyzer remote, Architect API, Architect UI | 브라우저 `http://127.0.0.1:5173` |
+| `architect-web` | 공통 백엔드 5종, Analyzer remote, Architect API, Architect UI | 브라우저 `http://127.0.0.1:15173` |
 | `architect-electron` | 공통 백엔드 5종, 빌드된 Architect 데스크톱 앱, 앱 내부 Architect API | `Robo Architect` Electron 창 |
-| `all` | Analyzer UI와 Architect 웹 UI, 양쪽에 필요한 로컬 서비스 전체 | 브라우저 `http://127.0.0.1:3000`, `http://127.0.0.1:5173` |
+| `all` | Analyzer UI와 Architect 웹 UI, 양쪽에 필요한 로컬 서비스 전체 | 브라우저 `http://127.0.0.1:3000`, `http://127.0.0.1:15173` |
 
 Analyzer만 확인하려면 `analyzer`, Architect를 브라우저로 확인하려면
 `architect-web`, 두 웹 UI를 한 번에 개발하려면 `all`, 실제 데스크톱 앱을
@@ -155,7 +155,7 @@ robo.cmd restart all -Build
 ```
 
 - Analyzer UI: `http://127.0.0.1:3000`
-- Architect UI: `http://127.0.0.1:5173`
+- Architect UI: `http://127.0.0.1:15173`
 - API Gateway: `http://127.0.0.1:9000` (화면 주소가 아니라 두 UI의 API 경유지)
 
 ## 3. 명령어는 각각 무슨 뜻인가요?
@@ -225,8 +225,8 @@ robo.cmd up architect-web
 예상 결과:
 
 1. 각 서비스마다 `[ OK ] ... ready`가 표시됩니다.
-2. 마지막에 `Open http://127.0.0.1:5173`이 표시됩니다.
-3. 브라우저에서 `http://127.0.0.1:5173`을 열면 Robo Architect 화면이 나옵니다.
+2. 마지막에 `Open http://127.0.0.1:15173`이 표시됩니다.
+3. 브라우저에서 `http://127.0.0.1:15173`을 열면 Robo Architect 화면이 나옵니다.
 
 상태와 로그를 보고 종료합니다.
 
@@ -389,14 +389,14 @@ robo.cmd setup architect-electron
 
 | 서비스 | 로컬 포트 |
 |---|---:|
-| Analyzer | 5502 |
-| catalog | 5503 |
+| Analyzer | 15502 |
+| catalog | 15503 |
 | data-fabric | 8404 |
 | parser | 8401 |
 | Gateway | 9000 |
-| Analyzer federation remote | 5001 |
+| Analyzer federation remote | 15001 |
 | Architect web API | 8501 |
-| Architect web UI | 5173 |
+| Architect web UI | 15173 |
 | Analyzer 전용 UI | 3000 |
 
 이 PC에서는 Windows가 8001·8004·8081을 예약해 애플리케이션이 사용할 수

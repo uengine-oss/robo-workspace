@@ -116,7 +116,7 @@ Port conflict recovery (also stops unrecorded listeners on profile ports):
 
 Profiles:
   analyzer             Analyzer stack and UI (http://127.0.0.1:3000)
-  architect-web        Architect stack and browser UI (http://127.0.0.1:5173)
+  architect-web        Architect stack and browser UI (http://127.0.0.1:15173)
   architect-electron   Architect stack and Electron desktop app
   all                  Analyzer UI + Architect browser UI together
 
@@ -585,8 +585,8 @@ function Start-Workspace {
   }catch{Fail $_;Stop-Owned;throw}
   Pass "$Profile started"
   if($Profile-eq'analyzer'){Write-Host 'Open http://127.0.0.1:3000'}
-  elseif($Profile-eq'architect-web'){Write-Host 'Open http://127.0.0.1:5173'}
-  elseif($Profile-eq'all'){Write-Host 'Open Analyzer http://127.0.0.1:3000';Write-Host 'Open Architect http://127.0.0.1:5173'}
+  elseif($Profile-eq'architect-web'){Write-Host 'Open http://127.0.0.1:15173'}
+  elseif($Profile-eq'all'){Write-Host 'Open Analyzer http://127.0.0.1:3000';Write-Host 'Open Architect http://127.0.0.1:15173'}
   elseif($NoElectron){Write-Host 'Shared backends are ready; run the packaged app or rerun without -NoElectron.'}
   else{Write-Host 'Electron is running. Use robo.cmd down architect-electron to stop the owned stack.'}
 }
