@@ -63,11 +63,15 @@ try{
   $architectCatalog=@($manifest.services|Where-Object{$_.id-eq'catalog'-and$_.profiles-contains'architect-web'})
   $architectFabric=@($manifest.services|Where-Object{$_.id-eq'fabric'-and$_.profiles-contains'architect-web'})
   if($architectCatalog.Count-ne1-or$architectCatalog[0].repo-ne'architect'-or
-     $architectCatalog[0].cwd-ne'robo-analyzer/robo-data-catalog'){
+     $architectCatalog[0].cwd-ne'robo-analyzer/robo-data-catalog'-or
+     -not($architectCatalog[0].args-contains'main:app')-or
+     $architectCatalog[0].args-contains'app.main:app'){
     throw 'Architect profiles must run the Architect-pinned Catalog submodule'
   }
   if($architectFabric.Count-ne1-or$architectFabric[0].repo-ne'architect'-or
-     $architectFabric[0].cwd-ne'robo-analyzer/robo-data-fabric/backend'){
+     $architectFabric[0].cwd-ne'robo-analyzer/robo-data-fabric'-or
+     -not($architectFabric[0].args-contains'main:app')-or
+     $architectFabric[0].args-contains'app.main:app'){
     throw 'Architect profiles must run the Architect-pinned Fabric submodule'
   }
   $architectRemote=@($manifest.services|Where-Object id -eq 'analyzer-remote')

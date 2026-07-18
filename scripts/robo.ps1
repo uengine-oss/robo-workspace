@@ -212,7 +212,7 @@ function Setup-Workspace {
     Invoke-Checked 'git' @('submodule','update','--init','--recursive','--','open-pencil','robo-analyzer/robo-data-analyzer','robo-analyzer/robo-data-catalog','robo-analyzer/robo-data-fabric','robo-analyzer/robo-data-frontend') $architect
     Setup-Python (Analyzer-Root) 'requirements.txt'
     Setup-Python (Catalog-Root) 'requirements.txt'
-    Setup-Python (Join-Path(Fabric-Root)'backend') 'requirements.txt'
+    Setup-Python (Fabric-Root) 'requirements.txt'
     Setup-Node (Analyzer-Frontend-Root)
     Info 'installing Architect Python dependencies'
     Invoke-Checked 'uv.exe' @('sync') $architect
