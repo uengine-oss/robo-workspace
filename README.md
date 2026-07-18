@@ -3,6 +3,10 @@
 Robo Workspace는 여러 개로 나뉜 Robo Git 저장소를 **한 번에 준비하고 실행하고
 종료하는 Windows용 관리 도구**입니다.
 
+이 저장소의 기준 사용자는 특정 데모를 촬영하는 사람만이 아닙니다. Robo를 로컬에서
+개발하는 본인과 새 협업자가 Workspace 하나만 clone한 뒤 같은 구조와 같은 명령으로
+통합 환경을 재현할 수 있게 하는 **공용 개발 진입점**입니다.
+
 Robo는 하나의 프로그램처럼 보이지만 실제로는 Analyzer, parser, Gateway,
 data-fabric, Architect UI처럼 역할이 다른 서비스가 각각 독립 저장소에 있습니다.
 예전에는 저장소마다 서버를 직접 켜야 했고, 포트나 실행 순서를 하나라도
@@ -21,9 +25,10 @@ Robo Workspace 하나로 다음 작업을 할 수 있습니다.
 - 여러 저장소를 수정 내용 손실 없이 동기화
 - Electron 실행 파일과 설치 파일 빌드
 
-코드를 모노레포로 합치거나 Architect 아래에 같은 저장소를 다시 중첩하지
-않습니다. 각 저장소는 계속 독립 Git 저장소이고, [workspace.json](workspace.json)이
-“어떤 프로필에 어떤 저장소와 서비스가 필요한지”를 기록한 배선도입니다.
+각 저장소는 계속 독립 Git 저장소이고, [workspace.json](workspace.json)이
+“어떤 프로필에 어떤 소스와 서비스가 필요한지”를 기록한 배선도입니다. Analyzer
+개발 모드는 형제 본진 저장소를 사용하고, Architect 모드는 Architect가 commit으로
+고정한 Analyzer 서브모듈을 사용합니다.
 
 ## 가장 빠른 시작
 
@@ -41,10 +46,15 @@ Robo Workspace 하나로 다음 작업을 할 수 있습니다.
 | Java | 17 | parser와 Gateway 실행 |
 | Neo4j | Bolt `7687` | Robo 그래프 저장소 |
 
-원하는 빈 폴더에서 Workspace만 clone합니다. 나머지 저장소는 `setup`이 자동으로
-형제 `project/` 폴더에 받습니다. Architect가 직접 빌드에 사용하는
-`open-pencil`만 필요한 서브모듈로 초기화하며, Analyzer 계열은 중첩 복제하지
-않고 형제 독립 저장소를 사용합니다.
+원하는 빈 폴더에서 Workspace만 clone합니다. `setup analyzer`는 Analyzer 본진
+저장소들을 형제 `project/` 폴더에 받고, `setup architect-web` 또는
+`setup architect-electron`은 Architect와 공용 parser/Gateway를 받은 뒤 Architect의
+`open-pencil` 및 `robo-analyzer/*` 서브모듈을 해당 commit으로 초기화합니다.
+
+> Git 서브모듈은 단순 URL 메모가 아니라 상위 저장소가 특정 commit을 가리키는 실제
+> 코드 체크아웃입니다. 따라서 Architect 모드는 Architect가 검증한 Analyzer 버전을
+> 그대로 실행하고, Analyzer 모드는 최신 본진 작업본을 실행합니다. 두 작업본을
+> 같은 것으로 간주하거나 한쪽의 수정 파일을 다른 쪽에서 자동 사용하지 않습니다.
 
 ```cmd
 mkdir C:\robo
@@ -109,26 +119,19 @@ robo.cmd down architect-electron
 | `analyzer` | parser, Analyzer, catalog, data-fabric, Gateway, Analyzer UI | 브라우저 `http://127.0.0.1:3000` |
 | `architect-web` | 공통 백엔드 5종, Analyzer remote, Architect API, Architect UI | 브라우저 `http://127.0.0.1:15173` |
 | `architect-electron` | 공통 백엔드 5종, 빌드된 Architect 데스크톱 앱, 앱 내부 Architect API | `Robo Architect` Electron 창 |
-| `all` | Analyzer UI와 Architect 웹 UI, 양쪽에 필요한 로컬 서비스 전체 | 브라우저 `http://127.0.0.1:3000`, `http://127.0.0.1:15173` |
 
 Analyzer만 확인하려면 `analyzer`, Architect를 브라우저로 확인하려면
-`architect-web`, 두 웹 UI를 한 번에 개발하려면 `all`, 실제 데스크톱 앱을
-확인하려면 `architect-electron`을 씁니다.
-
-두 웹 UI와 필요한 서비스를 한 번에 실행하고 종료하는 기본 명령은 다음 두 줄입니다.
-
-```cmd
-robo.cmd up all
-robo.cmd down all
-```
+`architect-web`, 실제 데스크톱 앱을 확인하려면 `architect-electron`을 씁니다.
+`all`은 실행 프로필이 아닙니다. `robo.cmd down all`에서만 모든 프로필의 소유
+프로세스를 정리한다는 종료 대상으로 사용합니다.
 
 한 서버만 수정했을 때 전체를 재시작할 필요가 없습니다. 프로필은 현재 실행한
 프로필과 맞추고 서비스 ID만 지정합니다.
 
 ```cmd
-robo.cmd restart all -Service analyzer
-robo.cmd down all -Service catalog
-robo.cmd up all -Service catalog
+robo.cmd restart analyzer -Service analyzer
+robo.cmd down architect-web -Service catalog
+robo.cmd up architect-web -Service catalog
 ```
 
 `up`과 `restart`는 기존 프런트엔드/Electron 빌드 결과를 기본으로 재사용합니다.
@@ -148,11 +151,6 @@ DB 이름과 설정 출처가 표시됩니다. 현재 기본 DB는 `neo4j`입니
 단, Electron에서 사용자가 선택한 Neo4j 연결은 요청마다 `X-Neo4j-*` 헤더로
 전달되며 Workspace 기본값보다 우선합니다. Workspace는 이 요청별 선택을 변경하거나
 파일에 저장하지 않습니다. 헤더가 없는 웹/CLI 요청만 Workspace 기본값을 사용합니다.
-
-```cmd
-robo.cmd restart all
-robo.cmd restart all -Build
-```
 
 - Analyzer UI: `http://127.0.0.1:3000`
 - Architect UI: `http://127.0.0.1:15173`
@@ -246,6 +244,22 @@ robo.cmd up architect-web -Build
 `up`은 반복 실행해도 안전합니다. 서비스가 모두 살아 있으면 이미 실행 중이라고
 알리고 성공하며, Electron 창을 직접 닫아 일부만 종료된 상태라면 남은 공통
 백엔드를 자동 정리하고 다시 시작합니다.
+
+#### Code 탭까지 시험하는 경우
+
+일반 Architect 화면은 위 명령만으로 실행됩니다. Code 탭의 대화형 생성은 로컬
+Claude Code 프로세스를 Architect API가 PTY로 연결하는 기능이므로 다음 조건이
+추가로 필요합니다.
+
+- `claude.cmd --version`이 성공해야 함
+- `claude.cmd auth status`가 로그인 상태여야 함
+- 구현 대상 프로젝트가 Git 저장소여야 함
+- `/robo-implement` skill과 Architect의 MCP 설정이 설치되어 있어야 함
+
+Workspace는 Architect API에 실제 포트 `8501`을 `API_PORT`와
+`ROBO_SPEC_BACKEND_URL`로 함께 전달합니다. 따라서 Code 세션이 생성하는 `.mcp.json`도
+동일한 API를 가리킵니다. Claude 로그인이나 사용자 전역 skill은 개인 자격정보와
+도구이므로 `setup`이 임의로 만들거나 변경하지 않습니다.
 
 ### 4-3. Architect Electron 직접 실행
 
@@ -485,3 +499,15 @@ scripts\dev-desktop.cmd
 Neo4j와 비밀 값은 Git에 올리지 않는 `robo-workspace\.env` 또는 각 서비스의
 로컬 `.env`에서 관리합니다. 비밀번호와 API 키를 README나 스크립트에 직접
 적지 마십시오.
+
+## 10. 일반 개발과 격리 E2E의 경계
+
+`setup`, `doctor`, `up`, `down`은 협업자가 평소 사용하는 일반 개발 명령입니다.
+이 명령들은 Neo4j 데이터, 데이터소스, 헌장 또는 Proposal을 삭제하지 않습니다.
+
+반복 가능한 E2E나 영상 촬영에서 빈 데이터가 필요하면 기본 `project/`와 기본 DB를
+재사용하지 말고, 실행할 때 전달한 별도 작업 루트와 별도 Neo4j database를
+사용합니다. 재사용 E2E 도구는 `project_temp` 같은 특정 로컬 폴더를 코드에
+고정하지 않고 설정 파일이나 명령 인자로 대상 루트·포트·DB를 받습니다. 초기화
+명령은 전달된 대상이 격리 환경인지 확인한 뒤에만 실행하며, 공용 Workspace 기본
+명령에는 추가하지 않습니다.

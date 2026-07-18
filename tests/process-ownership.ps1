@@ -56,12 +56,6 @@ try {
   $Profile='analyzer'
   New-Item -ItemType Directory -Force -Path $RuntimeRoot|Out-Null
 
-  $Profile='all'
-  Assert-True (@(Repositories).Count-eq 7) 'all profile did not include every local web repository'
-  Assert-True (@(Services).Count-eq 9) 'all profile did not include the expected nine local web services'
-  Assert-True (@(Services|Where-Object id -eq 'architect-electron').Count-eq 0) 'all profile unexpectedly included Electron'
-  $Profile='analyzer'
-
   $originalConfig=$Config
   $originalProjectRoot=$ProjectRoot
   $servicePort=Get-FreePort

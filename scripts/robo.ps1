@@ -14,10 +14,12 @@ param(
 $ErrorActionPreference = 'Stop'
 $WorkspaceRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $ProjectRoot = if ($env:ROBO_PROJECT_ROOT) { $env:ROBO_PROJECT_ROOT } else { Join-Path (Split-Path $WorkspaceRoot -Parent) 'project' }
-$RuntimeRoot = Join-Path $WorkspaceRoot '.robo'
+$RuntimeRoot = if($env:ROBO_WORKSPACE_RUNTIME){[IO.Path]::GetFullPath($env:ROBO_WORKSPACE_RUNTIME)}else{Join-Path $WorkspaceRoot '.robo'}
 $LogRoot = Join-Path $RuntimeRoot "logs\$Profile"
 $StatePath = Join-Path $RuntimeRoot "$Profile-state.json"
-$Config = Get-Content -Raw -Encoding UTF8 (Join-Path $WorkspaceRoot 'workspace.json') | ConvertFrom-Json
+$WorkspaceEnvPath = if($env:ROBO_WORKSPACE_ENV){[IO.Path]::GetFullPath($env:ROBO_WORKSPACE_ENV)}else{Join-Path $WorkspaceRoot '.env'}
+$WorkspaceConfigPath = if($env:ROBO_WORKSPACE_CONFIG){[IO.Path]::GetFullPath($env:ROBO_WORKSPACE_CONFIG)}else{Join-Path $WorkspaceRoot 'workspace.json'}
+$Config = Get-Content -Raw -Encoding UTF8 $WorkspaceConfigPath | ConvertFrom-Json
 
 function Read-EnvironmentFile([string]$Path) {
   $values=@{}
@@ -30,7 +32,7 @@ function Read-EnvironmentFile([string]$Path) {
   return $values
 }
 
-function Import-WorkspaceEnvironment([string]$Path=(Join-Path $WorkspaceRoot '.env')) {
+function Import-WorkspaceEnvironment([string]$Path=$WorkspaceEnvPath) {
   $values=Read-EnvironmentFile $Path
   foreach($name in $values.Keys){
     if(-not [Environment]::GetEnvironmentVariable($name,'Process')){
@@ -47,13 +49,21 @@ function Import-WorkspaceEnvironment([string]$Path=(Join-Path $WorkspaceRoot '.e
     [Environment]::SetEnvironmentVariable($workspaceName,$value,'Process')
     [Environment]::SetEnvironmentVariable("NEO4J_$suffix",$value,'Process')
   }
+  if($values.ContainsKey('ROBO_NEO4J_DATABASE')-and
+     [string]$values['ROBO_NEO4J_DATABASE']-ieq'system'){
+    throw 'ROBO_NEO4J_DATABASE must not be system'
+  }
   if($values.ContainsKey('ROBO_NEO4J_DATABASE')){
     [Environment]::SetEnvironmentVariable('ANALYZER_NEO4J_DATABASE',[string]$values['ROBO_NEO4J_DATABASE'],'Process')
   }
 }
 Import-WorkspaceEnvironment
 
-function Get-WorkspaceNeo4jConfigurationErrors([string]$Path=(Join-Path $WorkspaceRoot '.env')) {
+if($Profile-eq'all'-and$Command-ne'down'){
+  throw "'all' is not an execution profile. Use analyzer, architect-web, or architect-electron. Only 'robo.cmd down all' is supported."
+}
+
+function Get-WorkspaceNeo4jConfigurationErrors([string]$Path=$WorkspaceEnvPath) {
   if(-not(Test-Path $Path)){return @("Workspace environment file missing: $Path")}
   $values=Read-EnvironmentFile $Path
   $errors=@()
@@ -62,6 +72,10 @@ function Get-WorkspaceNeo4jConfigurationErrors([string]$Path=(Join-Path $Workspa
     if(-not $values.ContainsKey($name)-or[String]::IsNullOrWhiteSpace([string]$values[$name])){
       $errors+="$name is missing or empty in $Path"
     }
+  }
+  if($values.ContainsKey('ROBO_NEO4J_DATABASE')-and
+     [string]$values['ROBO_NEO4J_DATABASE']-ieq'system'){
+    $errors+='ROBO_NEO4J_DATABASE must not be system'
   }
   return @($errors)
 }
@@ -88,7 +102,23 @@ function Services {
 }
 function Repo-Path($Repo) { return Join-Path $ProjectRoot $Repo.path }
 function Find-Repo([string]$Id) { return $Config.repositories | Where-Object id -eq $Id | Select-Object -First 1 }
-function Is-ArchitectProfile { return $Profile -in @('architect-web','architect-electron','all') }
+function Is-ArchitectProfile { return $Profile -in @('architect-web','architect-electron') }
+function Analyzer-Root {
+  if(Is-ArchitectProfile){return Join-Path(Repo-Path(Find-Repo 'architect'))'robo-analyzer\robo-data-analyzer'}
+  return Repo-Path(Find-Repo 'analyzer')
+}
+function Catalog-Root {
+  if(Is-ArchitectProfile){return Join-Path(Repo-Path(Find-Repo 'architect'))'robo-analyzer\robo-data-catalog'}
+  return Repo-Path(Find-Repo 'catalog')
+}
+function Fabric-Root {
+  if(Is-ArchitectProfile){return Join-Path(Repo-Path(Find-Repo 'architect'))'robo-analyzer\robo-data-fabric'}
+  return Repo-Path(Find-Repo 'fabric')
+}
+function Analyzer-Frontend-Root {
+  if(Is-ArchitectProfile){return Join-Path(Repo-Path(Find-Repo 'architect'))'robo-analyzer\robo-data-frontend'}
+  return Repo-Path(Find-Repo 'frontend')
+}
 
 function Show-Help {
   Write-Host @'
@@ -107,9 +137,9 @@ Run and stop:
   robo.cmd down all
 
 Control one service without touching the rest of the stack:
-  robo.cmd restart all -Service analyzer
-  robo.cmd down all -Service catalog
-  robo.cmd up all -Service catalog
+  robo.cmd restart analyzer -Service analyzer
+  robo.cmd down architect-web -Service catalog
+  robo.cmd up architect-web -Service catalog
 
 Port conflict recovery (also stops unrecorded listeners on profile ports):
   robo.cmd restart <profile> -ForcePorts
@@ -118,8 +148,6 @@ Profiles:
   analyzer             Analyzer stack and UI (http://127.0.0.1:3000)
   architect-web        Architect stack and browser UI (http://127.0.0.1:15173)
   architect-electron   Architect stack and Electron desktop app
-  all                  Analyzer UI + Architect browser UI together
-
 Electron packages:
   robo.cmd build architect-electron unpacked
   robo.cmd build architect-electron installer
@@ -160,8 +188,13 @@ function Setup-Python([string]$Directory, [string]$Requirements) {
 
 function Setup-Node([string]$Directory) {
   Info "installing Node dependencies: $Directory"
-  $action=if(Test-Path (Join-Path $Directory 'package-lock.json')){'ci'}else{'install'}
-  Invoke-Checked 'npm.cmd' @($action) $Directory
+  if(Test-Path (Join-Path $Directory 'package-lock.json')){
+    try{Invoke-Checked 'npm.cmd' @('ci') $Directory}
+    catch{
+      Warn "npm ci could not replace an in-use dependency; restoring the lockfile-compatible tree with npm install"
+      Invoke-Checked 'npm.cmd' @('install') $Directory
+    }
+  }else{Invoke-Checked 'npm.cmd' @('install') $Directory}
 }
 
 function Setup-Workspace {
@@ -173,21 +206,23 @@ function Setup-Workspace {
       Invoke-Checked 'git' @('clone','--branch',$repo.branch,$repo.url,$path) $ProjectRoot
     } else { Pass "$($repo.id) already exists" }
   }
-  Setup-Python (Repo-Path (Find-Repo 'analyzer')) 'requirements.txt'
-  Setup-Python (Repo-Path (Find-Repo 'catalog')) 'requirements.txt'
-  Setup-Python (Join-Path (Repo-Path (Find-Repo 'fabric')) 'backend') 'requirements.txt'
-  Setup-Node (Repo-Path (Find-Repo 'frontend'))
   if (Is-ArchitectProfile) {
     $architect=Repo-Path (Find-Repo 'architect')
-    $openPencil=Join-Path $architect 'open-pencil'
-    if(-not(Test-Path(Join-Path $openPencil '.git'))){
-      Info 'initializing required Architect submodule: open-pencil'
-      Invoke-Checked 'git' @('submodule','update','--init','--recursive','--','open-pencil') $architect
-    }else{Pass 'open-pencil already initialized'}
+    Info 'initializing Architect-pinned submodules: open-pencil and robo-analyzer'
+    Invoke-Checked 'git' @('submodule','update','--init','--recursive','--','open-pencil','robo-analyzer/robo-data-analyzer','robo-analyzer/robo-data-catalog','robo-analyzer/robo-data-fabric','robo-analyzer/robo-data-frontend') $architect
+    Setup-Python (Analyzer-Root) 'requirements.txt'
+    Setup-Python (Catalog-Root) 'requirements.txt'
+    Setup-Python (Join-Path(Fabric-Root)'backend') 'requirements.txt'
+    Setup-Node (Analyzer-Frontend-Root)
     Info 'installing Architect Python dependencies'
     Invoke-Checked 'uv.exe' @('sync') $architect
     Setup-Node (Join-Path $architect 'frontend')
     Setup-Node (Join-Path $architect 'desktop')
+  } else {
+    Setup-Python (Analyzer-Root) 'requirements.txt'
+    Setup-Python (Catalog-Root) 'requirements.txt'
+    Setup-Python (Fabric-Root) 'requirements.txt'
+    Setup-Node (Analyzer-Frontend-Root)
   }
   $envPath=Join-Path $WorkspaceRoot '.env'
   if (-not (Test-Path $envPath)) { Copy-Item (Join-Path $WorkspaceRoot '.env.example') $envPath; Warn '.env created; fill the secret values before analysis' }
@@ -207,8 +242,22 @@ function Sync-Workspace {
     Pass "$($repo.id): synced"
   }
   if(Is-ArchitectProfile){
-    $openPencil=Join-Path(Repo-Path(Find-Repo 'architect'))'open-pencil\package.json'
-    if(Test-Path $openPencil){Pass 'Architect open-pencil submodule'}else{Fail 'Architect open-pencil missing [ACTION] robo.cmd setup architect-electron';$failed=$true}
+    $architect=Repo-Path(Find-Repo 'architect')
+    $submodules=@(
+      'open-pencil',
+      'robo-analyzer/robo-data-analyzer',
+      'robo-analyzer/robo-data-catalog',
+      'robo-analyzer/robo-data-fabric',
+      'robo-analyzer/robo-data-frontend'
+    )
+    $missing=@($submodules|Where-Object{-not(Test-Path(Join-Path $architect "$_\.git"))})
+    if($missing.Count){
+      Warn "Architect submodules missing ($($missing-join ', ')); run setup $Profile"
+    }else{
+      Info 'updating Architect-pinned submodules to parent-recorded revisions'
+      Invoke-Checked 'git' @('submodule','update','--init','--recursive','--') $architect
+      Pass 'Architect pinned submodules synced'
+    }
   }
 }
 
@@ -235,9 +284,7 @@ function Test-Neo4jAuthentication {
   foreach($name in @('NEO4J_URI','NEO4J_USER','NEO4J_PASSWORD')){
     if(-not[Environment]::GetEnvironmentVariable($name,'Process')){return $false}
   }
-  $analyzer=Find-Repo 'analyzer'
-  if(-not $analyzer){return $false}
-  $python=Join-Path(Repo-Path $analyzer)'.venv\Scripts\python.exe'
+  $python=Join-Path(Analyzer-Root)'.venv\Scripts\python.exe'
   if(-not(Test-Path $python)){return $false}
   $probe="import os; from neo4j import GraphDatabase; d=GraphDatabase.driver(os.getenv('NEO4J_URI'), auth=(os.getenv('NEO4J_USER'), os.getenv('NEO4J_PASSWORD'))); d.verify_connectivity(); d.close()"
   & $python -c $probe 2>&1|Out-Null
@@ -246,7 +293,7 @@ function Test-Neo4jAuthentication {
 
 function Show-SharedNeo4jTarget {
   $database=[Environment]::GetEnvironmentVariable('ROBO_NEO4J_DATABASE','Process')
-  if($database){Pass "shared Neo4j database=$database (source=robo-workspace/.env)"}
+  if($database){Pass "shared Neo4j database=$database (source=$WorkspaceEnvPath)"}
 }
 
 function Doctor-Workspace {
@@ -258,6 +305,13 @@ function Doctor-Workspace {
   }
   foreach ($repo in Repositories) {
     if(Test-Path(Join-Path(Repo-Path $repo)'.git')){Pass "$($repo.id) repository"}else{Fail "$($repo.id) missing [ACTION] robo.cmd setup $Profile";$failed=$true}
+  }
+  if(Is-ArchitectProfile){
+    $architect=Repo-Path(Find-Repo 'architect')
+    foreach($relative in @('open-pencil','robo-analyzer\robo-data-analyzer','robo-analyzer\robo-data-catalog','robo-analyzer\robo-data-fabric','robo-analyzer\robo-data-frontend')){
+      if(Test-Path(Join-Path $architect "$relative\.git")){Pass "Architect submodule $relative"}
+      else{Fail "Architect submodule missing: $relative [ACTION] robo.cmd setup $Profile";$failed=$true}
+    }
   }
   $neo4jConfigErrors=@(Get-WorkspaceNeo4jConfigurationErrors)
   foreach($errorMessage in $neo4jConfigErrors){Fail "$errorMessage [ACTION] configure robo-workspace\.env";$failed=$true}
@@ -285,13 +339,13 @@ function Doctor-Workspace {
 }
 
 function Build-AnalyzerRemote {
-  $frontend=Repo-Path(Find-Repo 'frontend')
+  $frontend=Analyzer-Frontend-Root
   Info 'building Analyzer federation remote'
   Invoke-Checked 'npm.cmd' @('run','build:docker') $frontend
 }
 
 function Build-CoLocatedFrontend {
-  $architect=Repo-Path(Find-Repo 'architect'); $frontend=Repo-Path(Find-Repo 'frontend')
+  $architect=Repo-Path(Find-Repo 'architect'); $frontend=Analyzer-Frontend-Root
   Info 'building Architect host and co-locating Analyzer remote'
   Invoke-WithEnvironment @{ROBO_ANALYZER_FRONTEND_DIR=$frontend} {
     Invoke-Checked 'node.exe' @('scripts/build-desktop-frontend.mjs') $architect
@@ -316,8 +370,8 @@ function Build-Desktop {
 
 function Prepare-ProfileArtifacts {
   if($SkipBuild){Warn '-SkipBuild is no longer needed; existing build output will be used';return}
-  if($Profile -in @('architect-web','all')){
-    $remoteEntry=Join-Path(Repo-Path(Find-Repo 'frontend'))'dist\assets\remoteEntry.js'
+  if($Profile -eq 'architect-web'){
+    $remoteEntry=Join-Path(Analyzer-Frontend-Root)'dist\assets\remoteEntry.js'
     if($Build-or-not(Test-Path $remoteEntry)){Build-AnalyzerRemote}else{Pass 'reusing existing Analyzer remote build (use -Build to rebuild)'}
   }
   if($Profile -eq 'architect-electron'){
@@ -517,6 +571,16 @@ function Assert-ServiceCanStart($Service) {
     $file=Join-Path $cwd $Service.file
     if(-not(Test-Path $file)){throw "$($Service.id) executable missing: $file"}
   }elseif(-not(Get-Command $Service.file -ErrorAction SilentlyContinue)){throw "$($Service.file) is not available"}
+  if($Service.file-eq'cmd.exe'){
+    $args=@($Service.args)
+    $callIndex=[Array]::IndexOf($args,'call')
+    if($callIndex-ge0-and$callIndex+1-lt$args.Count){
+      $batch=[string]$args[$callIndex+1]
+      if(-not[IO.Path]::IsPathRooted($batch)-and-not(Test-Path -LiteralPath(Join-Path $cwd $batch))){
+        throw "$($Service.id) batch entrypoint missing: $(Join-Path $cwd $batch)"
+      }
+    }
+  }
   if($Service.port-and(Test-Port([int]$Service.port))){
     $owners=(Get-PortOwners([int]$Service.port))-join ','
     throw "$($Service.id) port $($Service.port) already in use by pid=$owners"
@@ -535,6 +599,13 @@ function Start-ConfiguredService($Service,$ExistingEntries) {
     $windowStyle=if($Service.windowStyle){[string]$Service.windowStyle}else{'Hidden'}
     $startOptions=@{FilePath=$file;WorkingDirectory=$cwd;RedirectStandardOutput=$out;RedirectStandardError=$err;WindowStyle=$windowStyle;PassThru=$true}
     $serviceArgs=@($Service.args|Where-Object{$_ -ne $null})
+    if($file-eq'cmd.exe'){
+      $callIndex=[Array]::IndexOf($serviceArgs,'call')
+      if($callIndex-ge0-and$callIndex+1-lt$serviceArgs.Count){
+        $batch=[string]$serviceArgs[$callIndex+1]
+        if(-not[IO.Path]::IsPathRooted($batch)){$serviceArgs[$callIndex+1]='"'+(Join-Path $cwd $batch)+'"'}
+      }
+    }
     if($serviceArgs.Count-gt 0){$startOptions.ArgumentList=$serviceArgs}
     $process=Start-Process @startOptions
   }
@@ -568,10 +639,6 @@ function Start-Workspace {
     Warn "stale $Profile state detected ($($stale.Count) exited service); cleaning owned processes before restart"
     Stop-Owned
   }
-  if($Profile-eq'all'){
-    $otherState=@('analyzer','architect-web','architect-electron')|Where-Object{Test-Path(Join-Path $RuntimeRoot "$_-state.json")}
-    if($otherState){Warn "other Workspace profile state detected ($($otherState-join ', ')); stopping it before all";Stop-AllProfiles}
-  }
   Doctor-Workspace
   Prepare-ProfileArtifacts
   New-Item -ItemType Directory -Force -Path $LogRoot|Out-Null
@@ -584,16 +651,20 @@ function Start-Workspace {
     }
   }catch{Fail $_;Stop-Owned;throw}
   Pass "$Profile started"
-  if($Profile-eq'analyzer'){Write-Host 'Open http://127.0.0.1:3000'}
-  elseif($Profile-eq'architect-web'){Write-Host 'Open http://127.0.0.1:15173'}
-  elseif($Profile-eq'all'){Write-Host 'Open Analyzer http://127.0.0.1:3000';Write-Host 'Open Architect http://127.0.0.1:15173'}
+  if($Profile-eq'analyzer'){
+    $ui=Services|Where-Object id -eq 'frontend'|Select-Object -First 1
+    Write-Host "Open $($ui.health)"
+  }
+  elseif($Profile-eq'architect-web'){
+    $ui=Services|Where-Object id -eq 'architect-web'|Select-Object -First 1
+    Write-Host "Open $($ui.health)"
+  }
   elseif($NoElectron){Write-Host 'Shared backends are ready; run the packaged app or rerun without -NoElectron.'}
   else{Write-Host 'Electron is running. Use robo.cmd down architect-electron to stop the owned stack.'}
 }
 
 function Restart-Workspace {
-  if($Profile-eq'all'){Stop-AllProfiles}
-  elseif(Test-Path $StatePath){Stop-Owned}
+  if(Test-Path $StatePath){Stop-Owned}
   if($ForcePorts){Stop-ProfilePortListeners}
   Start-Workspace
 }
