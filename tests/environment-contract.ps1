@@ -80,11 +80,24 @@ try{
   $fabricEnv=Get-Content -LiteralPath(Join-Path $releaseEnvRoot $snapshots.fabric.file)-Raw
   $architectEnv=Get-Content -LiteralPath(Join-Path $releaseEnvRoot $snapshots.architect.file)-Raw
   if($catalogEnv-notmatch'(?m)^LLM_API_BASE=http://ai-server\.dream-flow\.com:30000/v1$'-or
+     $catalogEnv-notmatch'(?m)^LLM_MAX_COMPLETION_TOKENS=4096$'-or
      $architectEnv-notmatch'(?m)^OPENAI_BASE_URL=http://ai-server\.dream-flow\.com:30000/v1$'){
     throw 'Catalog/Architect packaged GPU endpoint mapping is incomplete'
   }
+  if($architectEnv-notmatch'(?m)^HYBRID_EMBED_TOP_K=3$'-or
+     $architectEnv-notmatch'(?m)^WIREFRAME_LLM_CONCURRENCY=4$'){
+    throw 'Architect advanced runtime environment mapping is incomplete'
+  }
+  $parserEnv=Get-Content -LiteralPath(Join-Path $releaseEnvRoot $snapshots.parser.file)-Raw
+  if($parserEnv-notmatch'(?m)^PARSER_REPAIR_AGENT_ENABLED=false$'){
+    throw 'Parser runtime environment mapping is incomplete'
+  }
   if($fabricEnv-match'(?m)^MINDSDB_(URL|HOST|API_PORT)='){
     throw 'Fabric packaged environment captured app-owned MindsDB topology'
+  }
+  if($fabricEnv-notmatch'(?m)^MINDSDB_REPLACE_LOCALHOST=host\.docker\.internal$'-or
+     $fabricEnv-notmatch'(?m)^DATA_FABRIC_QUERY_TIMEOUT_SECONDS=30$'){
+    throw 'Fabric runtime environment mapping is incomplete'
   }
   $WorkspaceEnvPath=$originalWorkspaceEnvPath
   $architectRoot=Repo-Path(Find-Repo 'architect')

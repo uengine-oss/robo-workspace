@@ -27,7 +27,7 @@ The committed `.env.example` selects `qwen36_sglang_local`,
 | `config/fabric.env` | `MINDSDB_*` except URL/host/port topology, `OPENAI_API_KEY`, `DATA_FABRIC_*` |
 | `config/parser.env` | `PARSER_*`, `JAVA_*` |
 | `config/gateway.env` | `GATEWAY_*`, `SPRING_*` |
-| bundled Architect `.env` | `LLM_*`, `OPENAI_*`, `ANTHROPIC_*`, `GOOGLE_*`, `CHANGE_PROPAGATION_*`, `GENERATION_*`, `INGESTION_*` |
+| bundled Architect `.env` | `LLM_*`, provider keys, change/ingestion/generation, audit/model, wireframe/hybrid/pdf2bpmn settings |
 
 ## Runtime overrides
 
@@ -50,3 +50,12 @@ values are never logged. Because the installer necessarily contains the
 internal API credential needed for immediate use, this installer is an
 internal-distribution artifact and the credential is extractable by its
 recipient.
+
+## Template completeness
+
+`.env.example` lists both active baseline values and optional `# KEY=value`
+overrides. `tests/environment-catalog.ps1` extracts environment names from the
+available Analyzer, Catalog, Fabric, Parser, Gateway, and Architect source
+checkouts and rejects undocumented consumers. It also verifies that critical
+settings enter the intended snapshot while Neo4j, data paths, service URLs,
+ports, and app-owned MindsDB topology remain excluded.

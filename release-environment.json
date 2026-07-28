@@ -10,12 +10,22 @@
   ],
   "credentialNames": [
     "ROBO_LLM_API_KEY",
-    "OPENAI_API_KEY"
+    "ROBO_EMBED_API_KEY",
+    "ROBO_SEARCH_LLM_API_KEY",
+    "LLM_API_KEY",
+    "OPENAI_API_KEY",
+    "ANTHROPIC_API_KEY",
+    "ANTHROPIC_AUTH_TOKEN",
+    "GOOGLE_API_KEY",
+    "PARSER_REPAIR_AGENT_API_KEY",
+    "PDF2BPMN_FACADE_KEY"
   ],
   "placeholderValues": [
     "notused",
     "changeme",
-    "your-api-key"
+    "your-api-key",
+    "your-api-key-here",
+    "sk-your-api-key-here"
   ],
   "scopes": {
     "analyzer": {
@@ -92,9 +102,19 @@
         "GOOGLE_",
         "CHANGE_PROPAGATION_",
         "GENERATION_",
-        "INGESTION_"
+        "INGESTION_",
+        "AI_AUDIT_",
+        "MODEL_",
+        "CHAT_",
+        "WIREFRAME_",
+        "HYBRID_",
+        "PDF2BPMN_",
+        "SMART_LOGGER_"
       ],
-      "names": []
+      "names": [
+        "IS_SKIP_UI_PHASE",
+        "BC_SPEC_SPLIT_LINE_THRESHOLD"
+      ]
     }
   }
 }

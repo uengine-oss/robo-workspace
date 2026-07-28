@@ -211,7 +211,7 @@ function Analyzer-Frontend-Root {
 
 function Show-Help {
   Write-Host @'
-Robo Workspace - setup and run the independent Robo repositories together
+Robo Workspace - setup, run, and package the independent Robo repositories on Windows
 
 First-time setup:
   robo.cmd setup <profile>
@@ -238,15 +238,22 @@ Profiles:
   architect-web        Architect stack and browser UI (http://127.0.0.1:15173)
   architect-electron   Architect stack and Electron desktop app
 Electron packages:
+  robo.cmd up architect-electron -Build
   robo.cmd build architect-electron unpacked
+  robo.cmd build architect-electron unpacked -SkipFrontend
   robo.cmd build architect-electron installer
   robo.cmd release architect-electron
 
-Existing build output is reused by default. Build only when requested or missing:
+Development build output is reused by default. Build only when requested or missing:
   robo.cmd up architect-web
   robo.cmd up architect-web -Build
 
-See README.md for explanations, a step-by-step tutorial, and troubleshooting.
+`build` creates a developer package. `release` bundles Docker images, the
+Architect Python runtime, the frontend, the installer, manifest, and checksum.
+The current launcher and release output are Windows-only; macOS packaging is
+not yet implemented or verified.
+
+See README.md and docs/environment.md for setup, environment, and release details.
 '@
 }
 

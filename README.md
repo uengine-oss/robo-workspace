@@ -1,13 +1,22 @@
 # Robo Workspace
 
-완전한 Windows 설치본 생성 방법은
-[Robo Architect Electron release](docs/architect-electron-release.md)를 참고하세요.
-
 Robo Workspace는 여러 개로 나뉜 Robo Git 저장소를 **한 번에 준비하고 실행하고
 종료하는 Windows용 관리 도구**입니다.
 
-다른 사용자에게 전달할 완성 설치본이 목적이라면 빌드 PC에서 아래 한 줄만
-실행합니다.
+전달 대상은 두 가지로 구분합니다.
+
+- 일반 사용자는 Windows 설치본을 받습니다. Docker Desktop만 필요하며 Git,
+  Node.js, Java, Python, uv, Neo4j Desktop과 소스 checkout은 필요하지 않습니다.
+- 개발자는 이 Workspace 저장소를 clone합니다. `setup`, `sync`, 로컬 웹/Electron
+  실행, 개발 패키지와 전체 설치본 재생성을 같은 명령 체계로 수행합니다.
+
+저장소 주소:
+
+```text
+https://github.com/uengine-oss/robo-workspace.git
+```
+
+완전한 Windows 설치본은 clean한 빌드 PC에서 아래 한 줄로 반복 생성합니다.
 
 ```cmd
 robo.cmd release architect-electron
@@ -17,6 +26,24 @@ robo.cmd release architect-electron
 Neo4j·MindsDB·분석 서비스 Docker image와 오프라인 archive, bundled Python API,
 프런트엔드, NSIS 설치파일 및 checksum 생성을 한 흐름으로 수행합니다. 설치 대상
 PC에는 Docker Desktop만 필요합니다.
+
+빠른 로컬 Electron 개발과 완전한 배포는 목적이 다릅니다.
+
+| 목적 | 명령 | 결과 |
+|---|---|---|
+| 현재 빌드를 바로 실행 | `robo.cmd up architect-electron` | 로컬 서비스 + 기존 Electron |
+| 변경분을 빌드해 실행 | `robo.cmd up architect-electron -Build` | 로컬 서비스 + 새 Electron |
+| 빠른 개발 패키지 | `robo.cmd build architect-electron unpacked` | `win-unpacked` EXE |
+| 전달용 전체 설치본 | `robo.cmd release architect-electron` | Docker/Python 포함 NSIS EXE |
+
+환경 설정은 [.env.example](.env.example)을 복사해 사용하며 전체 키와 설치판 전달
+범위는 [Workspace 환경 설정](docs/environment.md)에 정리되어 있습니다. 전체
+릴리스 구조와 검증 결과는
+[Robo Architect Electron release](docs/architect-electron-release.md)를 참고하세요.
+
+Electron 프런트 소스 자체는 운영체제 공통이지만 현재 Workspace 실행기,
+내장 Python 생성, NSIS 패키징과 산출물 경로는 Windows 전용입니다. macOS `.dmg`는
+아직 구현·검증하지 않았으므로 같은 명령으로 생성된다고 안내하지 않습니다.
 
 이 저장소의 기준 사용자는 특정 데모를 촬영하는 사람만이 아닙니다. Robo를 로컬에서
 개발하는 본인과 새 협업자가 Workspace 하나만 clone한 뒤 같은 구조와 같은 명령으로
@@ -369,7 +396,7 @@ robo.cmd up analyzer
 robo.cmd down analyzer
 ```
 
-## 5. Electron 실행 파일과 설치 파일 만들기
+## 5. Electron 개발 패키지와 전달용 설치본 만들기
 
 프런트부터 모두 새로 빌드한 unpacked 실행 파일:
 
@@ -399,12 +426,42 @@ project\robo-architect\desktop\out\dist\Robo-Architect-Setup-0.1.0.exe
 있습니다.
 
 ```cmd
-robo.cmd build architect-electron installer -SkipFrontend
+robo.cmd build architect-electron unpacked -SkipFrontend
 ```
 
-주의: 현재 산출물은 **개발용 패키지**입니다. Python backend runtime까지
-포함한 완전 독립 설치본은 아직 아니므로, 다른 PC에 설치 파일 하나만 전달하는
-배포 방식은 별도의 runtime bundle 작업 후 지원해야 합니다.
+위 `build` 산출물은 빠른 개발 확인용입니다. 다른 사용자에게 전달할 때는 반드시
+아래 전체 릴리스 명령을 사용합니다.
+
+```cmd
+robo.cmd release architect-electron
+```
+
+이 명령은 누락 저장소 clone 또는 clean 저장소 fast-forward, Architect pinned
+submodule 초기화, Node 의존성 준비, Neo4j·MindsDB·Analyzer·Catalog·Fabric·Parser·
+Gateway Docker image와 offline archive, Windows CPython Architect API, 통합
+프런트, NSIS installer, runtime manifest와 SHA-256을 한 흐름으로 만듭니다.
+
+반복 배포 순서는 다음과 같습니다.
+
+1. 변경한 서비스 저장소와 Architect submodule pointer를 먼저 commit/push합니다.
+2. Workspace 자체 변경도 commit/push해 clean 상태로 만듭니다.
+3. Workspace에서 `robo.cmd release architect-electron`을 실행합니다.
+4. `_releases/<release-id>/`의 installer와 `SHA256SUMS`를 확인해 전달합니다.
+
+릴리스 ID에는 Workspace와 Architect commit 앞 8자리가 포함됩니다. dirty 저장소,
+다른 branch, submodule pointer 불일치가 있으면 묵시적으로 섞지 않고 실패합니다.
+
+구현 진입점은 다음과 같습니다.
+
+- `scripts/robo.ps1`: clone/setup/sync, 개발 실행, `Build-DesktopRelease`
+- `workspace.json`: 저장소·서비스·프로필 배선
+- `release-environment.json`: 서비스별 설치 환경 전달 범위
+- `robo-architect/scripts/build-packaged-runtime.ps1`: Windows CPython API bundle
+- `robo-architect/desktop`: Electron lifecycle, Docker Compose, electron-builder
+
+macOS 작업자는 이 구조를 기준으로 별도 `darwin` runtime과 `.dmg` target을 추가할
+수 있지만, 현재 `powershell.exe`, `uv.exe`, `npm.cmd`, `docker.exe`,
+`python.exe`, `win-unpacked`, NSIS `.exe` 경로를 그대로 사용할 수는 없습니다.
 
 ## 6. 저장소 동기화는 안전한가요?
 
@@ -496,10 +553,14 @@ Neo4j-backed `/robo/check-data/`를 사용하고, 시작 전 `doctor`에서 Neo4
 확인합니다. 브라우저 모드에서 인증 오류가 나면 `robo-workspace\.env`의
 `ROBO_NEO4J_*` 값을 확인해야 합니다.
 
-프로세스 종료 로직을 수정한 뒤 격리 회귀 테스트를 실행하려면 다음 명령을 사용합니다.
-테스트는 실제 서비스 포트가 아닌 임시 빈 포트만 사용합니다.
+Workspace 계약 전체를 확인하려면 다음 명령을 사용합니다. clone/sync 검사는 임시
+local Git remote를 사용하고, 프로세스 검사는 실제 서비스 포트가 아닌 임시 빈
+포트를 사용합니다. `_runs` 아래의 테스트 파일은 성공·실패와 관계없이 정리됩니다.
 
 ```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File tests\environment-catalog.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File tests\environment-contract.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File tests\source-lifecycle.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File tests\process-ownership.ps1
 ```
 

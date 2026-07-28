@@ -43,3 +43,5 @@ Docker-managed distributable path를 사용한다.
 - app exit: owned containers/process 0, Neo4j volume preserved
 - isolated PostgreSQL datasource connection/register/extract/query/delete probe through packaged Gateway/Fabric
 - pinned MindsDB container, persistent volume, health dependency, and offline image identity in runtime manifest
+- source-consumer environment catalog coverage and scoped snapshot exclusions
+- isolated real Git clone and fast-forward sync lifecycle

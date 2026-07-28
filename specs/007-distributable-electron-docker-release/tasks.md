@@ -15,4 +15,7 @@
 - [x] T013 Fresh-checkout one-command source/dependency preparation
 - [x] T014 Live GPU client/call plus Neo4j analysis verification
 - [x] T015 Final installer, documentation, commit/push and clean-state audit
-- [ ] T016 Packaged PostgreSQL datasource live integration and restart-persistence verification
+- [x] T016 Packaged PostgreSQL datasource live integration and restart-persistence verification
+- [x] T017 Workspace environment template completeness and source-consumer regression audit
+- [x] T018 Repeatable development/release command and Windows/macOS boundary documentation
+- [x] T019 Isolated real Git clone and fast-forward sync lifecycle contract

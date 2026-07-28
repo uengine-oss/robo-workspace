@@ -76,6 +76,10 @@ Docker Desktop만 설치한다.
 - host Architect API는 Docker 내부 Neo4j URI와 Gateway host port를 환경으로 받는다.
 - release 실패는 non-zero exit이며 부분 산출물을 성공으로 보고하지 않는다.
 - build와 runtime 검증은 생성 artifact 자체를 대상으로 한다.
+- committed `.env.example`은 실제 서비스 source가 소비하는 runtime 설정을
+  활성 기본값 또는 주석 처리된 선택 override로 열거하고 회귀 테스트로 대조한다.
+- `setup`의 clone과 `sync`의 fast-forward 동작은 임시 local Git remote를 사용하는
+  격리 contract test로 검증하고 테스트 checkout을 남기지 않는다.
 
 ## Non-goals
 
