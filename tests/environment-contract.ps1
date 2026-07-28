@@ -10,6 +10,9 @@ $previous=@{}
 $fixture=Join-Path $PSScriptRoot 'fixtures\workspace.env'
 $invalidFixture=Join-Path $PSScriptRoot 'fixtures\workspace-invalid.env'
 $systemFixture=Join-Path $PSScriptRoot 'fixtures\workspace-system.env'
+$releaseEnvRoot=Join-Path $WorkspaceRoot '_runs\release-environment-contract'
+$releaseFixture=Join-Path $PSScriptRoot 'fixtures\release.env'
+$originalWorkspaceEnvPath=$null
 
 try{
   foreach($name in $names){$previous[$name]=[Environment]::GetEnvironmentVariable($name,'Process')}
@@ -41,6 +44,49 @@ try{
   if(-not(Get-Command Build-DesktopRelease -ErrorAction SilentlyContinue)){
     throw 'One-command Electron release entrypoint is missing'
   }
+  if(-not(Get-Command Prepare-ReleaseWorkspace -ErrorAction SilentlyContinue)){
+    throw 'Workspace-only release preparation entrypoint is missing'
+  }
+  $releaseTemplateErrors=@(Get-ReleaseEnvironmentConfigurationErrors(Join-Path $WorkspaceRoot '.env.example'))
+  if($releaseTemplateErrors.Count-ne2-or
+     @($releaseTemplateErrors|Where-Object{$_-match'ROBO_LLM_API_KEY'}).Count-ne1-or
+     @($releaseTemplateErrors|Where-Object{$_-match'OPENAI_API_KEY'}).Count-ne1){
+    throw 'Committed release template must require both internal GPU credentials'
+  }
+  $releaseErrors=@(Get-ReleaseEnvironmentConfigurationErrors $releaseFixture)
+  if($releaseErrors.Count){
+    throw "Release environment fixture is incomplete: $($releaseErrors-join'; ')"
+  }
+  $originalWorkspaceEnvPath=$WorkspaceEnvPath
+  $WorkspaceEnvPath=$releaseFixture
+  $snapshots=Write-ReleaseEnvironmentSnapshots $releaseEnvRoot
+  foreach($scope in @('analyzer','catalog','fabric','parser','gateway','architect')){
+    if(-not$snapshots.Contains($scope)){throw "Release environment snapshot missing scope: $scope"}
+    $snapshotFile=Join-Path $releaseEnvRoot $snapshots[$scope].file
+    if(-not(Test-Path -LiteralPath $snapshotFile)){throw "Release environment file missing: $scope"}
+    $actualHash=(Get-FileHash -LiteralPath $snapshotFile -Algorithm SHA256).Hash.ToLowerInvariant()
+    if($actualHash-ne$snapshots[$scope].sha256){throw "Release environment hash mismatch: $scope"}
+  }
+  $analyzerEnv=Get-Content -LiteralPath(Join-Path $releaseEnvRoot $snapshots.analyzer.file)-Raw
+  if($analyzerEnv-notmatch'(?m)^ROBO_LLM_CONFIG=qwen36_sglang_local$'-or
+     $analyzerEnv-notmatch'(?m)^ROBO_LLM_API_KEY=fixture-internal-key$'){
+    throw 'Analyzer packaged environment does not select the internal GPU config'
+  }
+  if($analyzerEnv-match'(?m)^ROBO_NEO4J_(URI|USER|PASSWORD|DATABASE)='-or
+     $analyzerEnv-match'(?m)^ROBO_DATA_DIR='){
+    throw 'Analyzer packaged environment captured runtime-owned topology'
+  }
+  $catalogEnv=Get-Content -LiteralPath(Join-Path $releaseEnvRoot $snapshots.catalog.file)-Raw
+  $fabricEnv=Get-Content -LiteralPath(Join-Path $releaseEnvRoot $snapshots.fabric.file)-Raw
+  $architectEnv=Get-Content -LiteralPath(Join-Path $releaseEnvRoot $snapshots.architect.file)-Raw
+  if($catalogEnv-notmatch'(?m)^LLM_API_BASE=http://ai-server\.dream-flow\.com:30000/v1$'-or
+     $architectEnv-notmatch'(?m)^OPENAI_BASE_URL=http://ai-server\.dream-flow\.com:30000/v1$'){
+    throw 'Catalog/Architect packaged GPU endpoint mapping is incomplete'
+  }
+  if($fabricEnv-match'(?m)^MINDSDB_(URL|HOST|API_PORT)='){
+    throw 'Fabric packaged environment captured app-owned MindsDB topology'
+  }
+  $WorkspaceEnvPath=$originalWorkspaceEnvPath
   $architectRoot=Repo-Path(Find-Repo 'architect')
   foreach($relative in @(
     'desktop\runtime\compose.yml',
@@ -50,6 +96,36 @@ try{
     if(-not(Test-Path(Join-Path $architectRoot $relative))){
       throw "Electron release input is missing: $relative"
     }
+  }
+  $manifestTemplate=Get-Content -LiteralPath(Join-Path $architectRoot 'desktop\runtime\runtime-manifest.template.json')-Raw|ConvertFrom-Json
+  if($manifestTemplate.schemaVersion-ne3){
+    throw 'Packaged runtime manifest must use the app-owned MindsDB schema'
+  }
+  if($manifestTemplate.images.mindsdb-ne'mindsdb/mindsdb:v26.1.0'-or
+     $manifestTemplate.imageIds.mindsdb-notmatch'^sha256:IMAGE_ID_MINDSDB$'){
+    throw 'Packaged runtime manifest must pin the app-owned MindsDB image'
+  }
+  foreach($scope in @('analyzer','catalog','fabric','parser','gateway','architect')){
+    if(-not$manifestTemplate.environment.$scope.file-or
+       $manifestTemplate.environment.$scope.sha256-notmatch'^ENV_SHA256_'){
+      throw "Runtime manifest environment declaration is incomplete: $scope"
+    }
+  }
+  $composeSource=Get-Content -LiteralPath(Join-Path $architectRoot 'desktop\runtime\compose.yml')-Raw
+  foreach($scope in @('analyzer','catalog','fabric','parser','gateway')){
+    if($composeSource-notmatch[regex]::Escape("./config/$scope.env")){
+      throw "Compose does not load the scoped environment: $scope"
+    }
+  }
+  if($composeSource-notmatch'(?m)^  mindsdb:$'-or
+     $composeSource-notmatch'MINDSDB_URL: http://mindsdb:47334'-or
+     $composeSource-notmatch'mindsdb_data:/mindsdb/var'){
+    throw 'Compose does not own the MindsDB datasource runtime'
+  }
+  $stackSource=Get-Content -LiteralPath(Join-Path $architectRoot 'desktop\src\main\docker-stack.ts')-Raw
+  if($stackSource-notmatch'ensureEnvironmentSnapshots'-or
+     $stackSource-notmatch'runtime\.environment_checksum_mismatch'){
+    throw 'Electron runtime does not verify packaged environment snapshots'
   }
   $architectApi=$manifest.services|Where-Object id -eq 'architect-api'
   if($architectApi.env.API_PORT-ne'8501'-or$architectApi.env.ROBO_SPEC_BACKEND_URL-ne'http://127.0.0.1:8501'){
@@ -121,5 +197,7 @@ try{
   }
   Write-Output 'environment contract tests passed'
 }finally{
+  if($originalWorkspaceEnvPath){$WorkspaceEnvPath=$originalWorkspaceEnvPath}
+  if(Test-Path -LiteralPath $releaseEnvRoot){Remove-Item -LiteralPath $releaseEnvRoot -Recurse -Force}
   foreach($name in $names){[Environment]::SetEnvironmentVariable($name,$previous[$name],'Process')}
 }

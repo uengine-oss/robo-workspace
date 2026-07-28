@@ -1,0 +1,100 @@
+{
+  "schemaVersion": 1,
+  "required": [
+    "ROBO_LLM_CONFIG",
+    "ROBO_LLM_API_KEY",
+    "LLM_PROVIDER",
+    "LLM_MODEL",
+    "OPENAI_BASE_URL",
+    "OPENAI_API_KEY"
+  ],
+  "credentialNames": [
+    "ROBO_LLM_API_KEY",
+    "OPENAI_API_KEY"
+  ],
+  "placeholderValues": [
+    "notused",
+    "changeme",
+    "your-api-key"
+  ],
+  "scopes": {
+    "analyzer": {
+      "file": "config/analyzer.env",
+      "prefixes": [
+        "ROBO_LLM_",
+        "ROBO_EMBED_",
+        "ROBO_SEARCH_",
+        "ROBO_CACHE_",
+        "ROBO_AGENT_",
+        "ROBO_BUDGET_",
+        "ROBO_PIPELINE_",
+        "ROBO_CATALOG_",
+        "ROBO_RUNTIME_",
+        "ROBO_SEM_",
+        "ROBO_GLOSSARY_"
+      ],
+      "names": [
+        "ROBO_RUN_OUTPUT_DIR",
+        "ROBO_NEO4J_RETRY_MAX_ATTEMPTS",
+        "ROBO_NEO4J_RETRY_BACKOFF_SECONDS"
+      ]
+    },
+    "catalog": {
+      "file": "config/catalog.env",
+      "prefixes": [
+        "LLM_",
+        "EMBEDDING_",
+        "FK_",
+        "METADATA_",
+        "CATALOG_"
+      ],
+      "names": [
+        "OPENAI_API_KEY"
+      ]
+    },
+    "fabric": {
+      "file": "config/fabric.env",
+      "excludeNames": [
+        "MINDSDB_URL",
+        "MINDSDB_HOST",
+        "MINDSDB_API_PORT"
+      ],
+      "prefixes": [
+        "MINDSDB_",
+        "DATA_FABRIC_"
+      ],
+      "names": [
+        "OPENAI_API_KEY"
+      ]
+    },
+    "parser": {
+      "file": "config/parser.env",
+      "prefixes": [
+        "PARSER_",
+        "JAVA_"
+      ],
+      "names": []
+    },
+    "gateway": {
+      "file": "config/gateway.env",
+      "prefixes": [
+        "GATEWAY_",
+        "SPRING_"
+      ],
+      "names": []
+    },
+    "architect": {
+      "file": "architect/app/.env",
+      "prefixes": [
+        "LLM_",
+        "OPENAI_",
+        "ANTHROPIC_",
+        "GOOGLE_",
+        "CHANGE_PROPAGATION_",
+        "GENERATION_",
+        "INGESTION_"
+      ],
+      "names": []
+    }
+  }
+}

@@ -6,6 +6,18 @@
 Robo Workspace는 여러 개로 나뉜 Robo Git 저장소를 **한 번에 준비하고 실행하고
 종료하는 Windows용 관리 도구**입니다.
 
+다른 사용자에게 전달할 완성 설치본이 목적이라면 빌드 PC에서 아래 한 줄만
+실행합니다.
+
+```cmd
+robo.cmd release architect-electron
+```
+
+누락 저장소 clone/동기화, Architect pinned submodule 초기화, 필요한 Node 의존성,
+Neo4j·MindsDB·분석 서비스 Docker image와 오프라인 archive, bundled Python API,
+프런트엔드, NSIS 설치파일 및 checksum 생성을 한 흐름으로 수행합니다. 설치 대상
+PC에는 Docker Desktop만 필요합니다.
+
 이 저장소의 기준 사용자는 특정 데모를 촬영하는 사람만이 아닙니다. Robo를 로컬에서
 개발하는 본인과 새 협업자가 Workspace 하나만 clone한 뒤 같은 구조와 같은 명령으로
 통합 환경을 재현할 수 있게 하는 **공용 개발 진입점**입니다.
@@ -160,6 +172,23 @@ DB 이름과 설정 출처가 표시됩니다. 현재 기본 DB는 `neo4j`입니
 전달되며 Workspace 기본값보다 우선합니다. Workspace는 이 요청별 선택을 변경하거나
 파일에 저장하지 않습니다. 헤더가 없는 웹/CLI 요청만 Workspace 기본값을 사용합니다.
 
+`robo.cmd release architect-electron`에서는 Workspace `.env`가 서비스 설정의 단일
+입력입니다. Analyzer의 `ROBO_LLM_*`, Catalog/Architect의 OpenAI-compatible 설정,
+Fabric의 MindsDB 설정과 튜닝값을 서비스별 env snapshot으로 나눠 installer에
+포함합니다. 저장소별 ignored `.env`는 릴리스 결과에 영향을 주지 않습니다.
+Neo4j 인증·`ROBO_DATA_DIR`·Docker 내부 URL·동적 포트는 설치판이 직접 관리합니다.
+
+기본 `.env.example`은 사내 GPU 서버의
+`qwen36_sglang_local / frentis-ai-model`을 선택합니다. 즉시 실행을 위해 내부 API
+credential도 설치파일에 포함되므로 설치파일은 내부 배포물입니다. 값은 Git,
+manifest 본문, 로그에는 기록되지 않지만 설치파일 수신자는 추출할 수 있습니다.
+
+설치판에서 사용자가 분석 폴더 하나를 고르면 Electron이 그 폴더의 상대경로를
+보존해 app-owned Gateway로 반입합니다. Windows 절대경로를 Linux 컨테이너에
+직접 넘기지 않습니다. Parser가 `.sql` 내용을 검사해
+`CREATE TABLE/VIEW/INDEX/SEQUENCE`는 DDL로, 프로시저·함수·패키지·트리거 SQL과
+일반 코드는 source로 자동 분류하므로 DDL 업로드를 따로 구분할 필요가 없습니다.
+
 - Analyzer UI: `http://127.0.0.1:3000`
 - Architect UI: `http://127.0.0.1:15173`
 - API Gateway: `http://127.0.0.1:9000` (화면 주소가 아니라 두 UI의 API 경유지)
@@ -178,6 +207,7 @@ DB 이름과 설정 출처가 표시됩니다. 현재 기본 DB는 `neo4j`입니
 | `down` | 이 도구가 시작한 프로세스 트리 종료 | 사용을 마쳤을 때, 재실행 전에 |
 | `sync` | 안전한 저장소 업데이트 | 다른 사람의 최신 커밋을 받을 때 |
 | `build` | Electron 패키지 생성 | exe 또는 installer가 필요할 때 |
+| `release` | 전체 서비스가 포함된 전달용 설치파일 생성 | 다른 사용자에게 줄 완성본이 필요할 때 |
 
 아무 인자 없이 `robo.cmd`를 실행하면 이 요약이 터미널에 표시됩니다.
 

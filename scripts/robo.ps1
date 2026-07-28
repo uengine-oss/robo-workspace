@@ -19,6 +19,7 @@ $LogRoot = Join-Path $RuntimeRoot "logs\$Profile"
 $StatePath = Join-Path $RuntimeRoot "$Profile-state.json"
 $WorkspaceEnvPath = if($env:ROBO_WORKSPACE_ENV){[IO.Path]::GetFullPath($env:ROBO_WORKSPACE_ENV)}else{Join-Path $WorkspaceRoot '.env'}
 $WorkspaceConfigPath = if($env:ROBO_WORKSPACE_CONFIG){[IO.Path]::GetFullPath($env:ROBO_WORKSPACE_CONFIG)}else{Join-Path $WorkspaceRoot 'workspace.json'}
+$ReleaseEnvironmentConfigPath = Join-Path $WorkspaceRoot 'release-environment.json'
 $Config = Get-Content -Raw -Encoding UTF8 $WorkspaceConfigPath | ConvertFrom-Json
 
 function Read-EnvironmentFile([string]$Path) {
@@ -83,6 +84,94 @@ function Get-WorkspaceNeo4jConfigurationErrors([string]$Path=$WorkspaceEnvPath) 
 function Assert-WorkspaceNeo4jConfiguration {
   $errors=@(Get-WorkspaceNeo4jConfigurationErrors)
   if($errors.Count-gt 0){throw ($errors-join '; ')}
+}
+
+function Get-ReleaseEnvironmentContract {
+  if(-not(Test-Path -LiteralPath $ReleaseEnvironmentConfigPath)){
+    throw "Release environment contract missing: $ReleaseEnvironmentConfigPath"
+  }
+  $contract=Get-Content -LiteralPath $ReleaseEnvironmentConfigPath -Raw -Encoding UTF8|ConvertFrom-Json
+  if($contract.schemaVersion-ne1-or-not$contract.scopes){
+    throw 'Unsupported release environment contract'
+  }
+  return $contract
+}
+
+function Get-ReleaseEnvironmentConfigurationErrors([string]$Path=$WorkspaceEnvPath) {
+  if(-not(Test-Path -LiteralPath $Path)){return @("Workspace environment file missing: $Path")}
+  $values=Read-EnvironmentFile $Path
+  $contract=Get-ReleaseEnvironmentContract
+  $errors=@()
+  foreach($name in @($contract.required)){
+    if(-not$values.ContainsKey([string]$name)-or
+       [String]::IsNullOrWhiteSpace([string]$values[[string]$name])){
+      $errors+="Required packaged runtime value is missing or empty: $name"
+    }
+  }
+  foreach($name in @($contract.credentialNames)){
+    if(-not$values.ContainsKey([string]$name)){continue}
+    $value=[string]$values[[string]$name]
+    if(@($contract.placeholderValues)-contains$value.ToLowerInvariant()){
+      $errors+="Packaged runtime credential still uses a placeholder: $name"
+    }
+  }
+  return @($errors)
+}
+
+function Test-ReleaseEnvironmentScopeKey([string]$Name,$Scope) {
+  if(@($Scope.excludeNames)-contains$Name){return $false}
+  if(@($Scope.names)-contains$Name){return $true}
+  foreach($prefix in @($Scope.prefixes)){
+    if($Name.StartsWith([string]$prefix,[StringComparison]::Ordinal)){return $true}
+  }
+  return $false
+}
+
+function Write-Utf8NoBom([string]$Path,[string]$Content) {
+  $parent=Split-Path $Path -Parent
+  New-Item -ItemType Directory -Force -Path $parent|Out-Null
+  [IO.File]::WriteAllText($Path,$Content,(New-Object Text.UTF8Encoding($false)))
+}
+
+function Write-ReleaseEnvironmentSnapshots([string]$RuntimeRoot) {
+  $errors=@(Get-ReleaseEnvironmentConfigurationErrors)
+  if($errors.Count){throw($errors-join'; ')}
+  $values=Read-EnvironmentFile $WorkspaceEnvPath
+  $contract=Get-ReleaseEnvironmentContract
+  $snapshots=[ordered]@{}
+  foreach($property in $contract.scopes.PSObject.Properties){
+    $name=$property.Name
+    $scope=$property.Value
+    $relative=[string]$scope.file
+    if([IO.Path]::IsPathRooted($relative)-or$relative.Contains('..')){
+      throw "Release environment path must stay inside runtime: $relative"
+    }
+    $target=[IO.Path]::GetFullPath((Join-Path $RuntimeRoot $relative))
+    $runtimePrefix=[IO.Path]::GetFullPath($RuntimeRoot).TrimEnd('\')+'\'
+    if(-not$target.StartsWith($runtimePrefix,[StringComparison]::OrdinalIgnoreCase)){
+      throw "Release environment path escapes runtime: $relative"
+    }
+    $lines=@()
+    foreach($key in @($values.Keys|Sort-Object)){
+      if($key-notmatch'^[A-Za-z_][A-Za-z0-9_]*$'){
+        throw "Invalid environment variable name in $WorkspaceEnvPath"
+      }
+      if(Test-ReleaseEnvironmentScopeKey $key $scope){
+        $value=[string]$values[$key]
+        if($value.Contains("`r")-or$value.Contains("`n")){
+          throw "Multiline environment value is not supported: $key"
+        }
+        $lines+="$key=$value"
+      }
+    }
+    $content=if($lines.Count){"$($lines-join"`n")`n"}else{"# No configured values for this service.`n"}
+    Write-Utf8NoBom $target $content
+    $snapshots[$name]=[ordered]@{
+      file=$relative.Replace('\','/')
+      sha256=(Get-FileHash -LiteralPath $target -Algorithm SHA256).Hash.ToLowerInvariant()
+    }
+  }
+  return $snapshots
 }
 
 function Info([string]$Message) { Write-Host "[INFO] $Message" -ForegroundColor Cyan }
@@ -228,6 +317,52 @@ function Setup-Workspace {
   $envPath=Join-Path $WorkspaceRoot '.env'
   if (-not (Test-Path $envPath)) { Copy-Item (Join-Path $WorkspaceRoot '.env.example') $envPath; Warn '.env created; fill the secret values before analysis' }
   Pass 'setup complete'; Write-Host "Next: robo.cmd doctor $Profile"
+}
+
+function Prepare-ReleaseWorkspace {
+  New-Item -ItemType Directory -Force -Path $ProjectRoot|Out-Null
+  foreach($repo in Repositories){
+    $path=Repo-Path $repo
+    if(-not(Test-Path(Join-Path $path '.git'))){
+      Info "cloning release source: $($repo.id)"
+      Invoke-Checked 'git' @('clone','--branch',$repo.branch,$repo.url,$path) $ProjectRoot
+      continue
+    }
+    $changes=@(& git -C $path status --porcelain --untracked-files=all)
+    if($LASTEXITCODE-ne0-or$changes.Count){
+      throw "release source must be clean before synchronization: $($repo.id)"
+    }
+    $branch=(& git -C $path branch --show-current).Trim()
+    if($branch-ne$repo.branch){
+      throw "release source must be on $($repo.branch): $($repo.id) is on $branch"
+    }
+    Info "synchronizing release source: $($repo.id)"
+    Invoke-Checked 'git' @('-C',$path,'pull','--ff-only','origin',$repo.branch) $WorkspaceRoot
+  }
+
+  $architect=Repo-Path(Find-Repo 'architect')
+  Info 'initializing Architect-pinned release submodules'
+  Invoke-Checked 'git' @(
+    'submodule','update','--init','--recursive','--',
+    'open-pencil',
+    'robo-analyzer/robo-data-analyzer',
+    'robo-analyzer/robo-data-catalog',
+    'robo-analyzer/robo-data-fabric',
+    'robo-analyzer/robo-data-frontend'
+  ) $architect
+
+  if(-not(Test-Path -LiteralPath $WorkspaceEnvPath)){
+    Copy-Item -LiteralPath (Join-Path $WorkspaceRoot '.env.example') -Destination $WorkspaceEnvPath
+    Warn '.env created from internal release defaults'
+  }
+
+  foreach($nodeRoot in @(
+    (Analyzer-Frontend-Root),
+    (Join-Path $architect 'frontend'),
+    (Join-Path $architect 'desktop')
+  )){
+    Setup-Node $nodeRoot
+  }
 }
 
 function Sync-Workspace {
@@ -450,6 +585,11 @@ function Build-DesktopRelease {
     throw 'release is supported only for architect-electron'
   }
 
+  Info 'preparing Workspace-only release inputs'
+  Prepare-ReleaseWorkspace
+  $environmentErrors=@(Get-ReleaseEnvironmentConfigurationErrors)
+  if($environmentErrors.Count){throw($environmentErrors-join'; ')}
+
   Info 'checking immutable release inputs'
   $sources = Get-ReleaseSources
   Assert-ReleaseSourceState $sources
@@ -467,6 +607,7 @@ function Build-DesktopRelease {
 
   $images = [ordered]@{
     neo4j   = 'neo4j:5.26.0'
+    mindsdb = 'mindsdb/mindsdb:v26.1.0'
     analyzer = "uengine/robo-analyzer:$releaseId"
     catalog  = "uengine/robo-data-catalog:$releaseId"
     fabric   = "uengine/robo-data-fabric:$releaseId"
@@ -476,6 +617,7 @@ function Build-DesktopRelease {
 
   Info "release id: $releaseId"
   Invoke-Checked 'docker.exe' @('pull', $images.neo4j) $WorkspaceRoot
+  Invoke-Checked 'docker.exe' @('pull', $images.mindsdb) $WorkspaceRoot
   Build-ReleaseImage 'analyzer' $images.analyzer $sources.analyzer $commits.analyzer
   Build-ReleaseImage 'catalog' $images.catalog $sources.catalog $commits.catalog
   Build-ReleaseImage 'fabric' $images.fabric $sources.fabric $commits.fabric
@@ -491,6 +633,8 @@ function Build-DesktopRelease {
   ) $sources.architect
 
   Copy-Item -LiteralPath (Join-Path $sources.architect 'desktop\runtime\compose.yml') -Destination (Join-Path $runtimeRoot 'compose.yml') -Force
+  Info 'writing service-scoped packaged environment'
+  $environmentSnapshots=Write-ReleaseEnvironmentSnapshots $runtimeRoot
   $imageList = @($images.Values)
   Info 'creating offline Docker image archive'
   Invoke-Checked 'docker.exe' (@('save', '--output', $imageArchive) + $imageList) $WorkspaceRoot
@@ -506,6 +650,10 @@ function Build-DesktopRelease {
   }
   foreach ($name in $commits.Keys) {
     $manifest.source.$name = $commits[$name]
+  }
+  foreach($name in $environmentSnapshots.Keys){
+    $manifest.environment.$name.file=$environmentSnapshots[$name].file
+    $manifest.environment.$name.sha256=$environmentSnapshots[$name].sha256
   }
   $manifestPath = Join-Path $runtimeRoot 'runtime-manifest.json'
   $manifestJson = $manifest | ConvertTo-Json -Depth 8

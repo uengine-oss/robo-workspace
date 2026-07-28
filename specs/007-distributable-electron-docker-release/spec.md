@@ -44,12 +44,33 @@ Docker Desktop만 설치한다.
    - Given image load, Compose health, local API 중 한 단계가 실패한다.
    - When startup budget이 끝난다.
    - Then 앱은 ready가 되지 않고 실패 단계와 복구 동작을 표면화하며 고아 프로세스를 남기지 않는다.
+7. **Workspace-only release**
+   - Given 새 Windows PC에 Workspace checkout과 Git, Node, uv, Docker Desktop만 있다.
+   - When `robo.cmd release architect-electron`을 실행한다.
+   - Then 명령이 누락된 source repository와 pinned submodule 및 Node dependencies를
+     준비하고 동일 명령 안에서 installer를 생성한다.
+8. **Packaged GPU environment**
+   - Given Workspace `.env`에 서비스별 runtime 값이 있다.
+   - When release를 만든다.
+   - Then 값은 Analyzer/Catalog/Fabric/Architect용 최소 권한 env snapshot으로 분리되고,
+     설치판 Analyzer는 `qwen36_sglang_local` GPU 설정으로 LLM client를 구성한다.
+9. **Electron local-folder analysis**
+   - Given Windows의 `shop_mall` 폴더에 C source와 schema SQL이 함께 있다.
+   - When 설치판 Electron에서 그 폴더를 선택해 분석한다.
+   - Then Electron이 파일의 상대경로를 보존해 app-owned Gateway로 반입하고 Parser가
+     SQL 내용을 기준으로 DDL과 source를 canonical shared volume에 분리한다. Windows
+     절대경로를 Linux container에 직접 전달하지 않는다.
 
 ## Requirements
 
 - release는 dirty repository/submodule을 묵시적으로 패키징하지 않는다.
 - image tag와 runtime manifest는 source commit으로 고정한다.
-- 비밀번호와 API key는 image, installer, manifest, 로그에 포함하지 않는다.
+- Neo4j password는 image, installer, manifest, 로그에 포함하지 않고 첫 실행에 생성한다.
+- 내부 즉시 실행 배포용 GPU/API credential은 Git과 로그에는 포함하지 않지만 release-time
+  service env snapshot으로 installer에 포함된다. 따라서 installer는 내부 배포물이며
+  credential 회수/회전 단위로 취급한다.
+- Workspace `.env`는 서비스 설정의 단일 release input이다. 서비스 checkout의 ignored
+  `.env` 존재 여부에 release 결과가 달라지지 않는다.
 - Docker stack은 외부에 Gateway, Analyzer MCP와 Neo4j Bolt만 bind하고 내부 서비스는
   전용 network에 둔다.
 - host Architect API는 Docker 내부 Neo4j URI와 Gateway host port를 환경으로 받는다.
@@ -62,3 +83,13 @@ Docker Desktop만 설치한다.
 - macOS installer
 - image registry publish
 - 자동 업데이트 channel
+
+## Packaged datasource acceptance
+
+- 격리된 PostgreSQL 테스트 DB에 실제 schema와 rows를 만든다.
+- MindsDB `v26.1.0`을 app-owned Docker service와 offline image archive에 포함하고 Data Fabric은
+  Docker network의 `http://mindsdb:47334`만 사용한다.
+- 설치형 Gateway/Data Fabric 경로로 연결 검사, 등록, metadata 추출, sample query를 수행한다.
+- MindsDB 연결과 app-owned Neo4j datasource registry가 함께 생성되어야 한다.
+- stack 재시작 후 datasource registry와 조회 기능이 유지되어야 한다.
+- 잘못된 접속정보는 registry를 남기지 않고 명확하게 실패해야 한다.

@@ -14,6 +14,10 @@
 5. frontend/Electron을 빌드하고 Compose, image archive, runtime manifest를 extraResources로 넣는다.
 6. NSIS installer와 SHA-256 manifest를 `_releases/<version>/`에 복사한다.
 7. packaged runtime manifest, image archive content, installer 존재와 checksum을 검증한다.
+8. Workspace `.env`를 계약 파일에 따라 service-scoped env snapshot으로 만들고 checksum을
+   runtime manifest에 기록한다. Compose topology와 app-owned secret은 snapshot보다 우선한다.
+9. release 진입점이 누락 repository/submodule/Node dependencies를 자체 준비해 fresh
+   Workspace checkout에서도 같은 한 명령을 유지한다.
 
 ## Ownership
 
@@ -33,7 +37,9 @@ Docker-managed distributable path를 사용한다.
 - release script contract tests with command stubs
 - Electron TypeScript build and desktop unit tests
 - Compose config validation
+- environment mapping/required-key/checksum contract tests
 - Docker image build
 - packaged app startup: image load → container health → local API health → UI
 - app exit: owned containers/process 0, Neo4j volume preserved
-
+- isolated PostgreSQL datasource connection/register/extract/query/delete probe through packaged Gateway/Fabric
+- pinned MindsDB container, persistent volume, health dependency, and offline image identity in runtime manifest
