@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-  [Parameter(Position=0)][ValidateSet('help','setup','sync','doctor','up','restart','status','logs','down','build')][string]$Command = 'help',
+  [Parameter(Position=0)][ValidateSet('help','setup','sync','doctor','up','restart','status','logs','down','build','release')][string]$Command = 'help',
   [Parameter(Position=1)][ValidateSet('analyzer','architect-web','architect-electron','all')][string]$Profile = 'analyzer',
   [Parameter(Position=2)][ValidateSet('unpacked','installer')][string]$Variant = 'unpacked',
   [Alias('Service')][string]$ServiceId,
@@ -151,6 +151,7 @@ Profiles:
 Electron packages:
   robo.cmd build architect-electron unpacked
   robo.cmd build architect-electron installer
+  robo.cmd release architect-electron
 
 Existing build output is reused by default. Build only when requested or missing:
   robo.cmd up architect-web
@@ -368,6 +369,176 @@ function Build-Desktop {
   Pass "artifact: $artifact"
 }
 
+function Get-GitCommit([string]$Directory) {
+  $commit = (& git -C $Directory rev-parse HEAD).Trim()
+  if ($LASTEXITCODE -ne 0 -or $commit -notmatch '^[a-f0-9]{40}$') {
+    throw "could not resolve Git commit: $Directory"
+  }
+  return $commit
+}
+
+function Assert-CleanReleaseRepository([string]$Label, [string]$Directory) {
+  if (-not (Test-Path (Join-Path $Directory '.git'))) {
+    throw "release repository missing: $Label ($Directory)"
+  }
+  $changes = @(& git -C $Directory status --porcelain --untracked-files=all)
+  if ($LASTEXITCODE -ne 0) {
+    throw "could not inspect release repository: $Label"
+  }
+  if ($changes.Count -gt 0) {
+    throw "release requires a clean $Label repository; commit or remove generated files first"
+  }
+}
+
+function Get-ReleaseSources {
+  $architect = Repo-Path (Find-Repo 'architect')
+  return [ordered]@{
+    workspace  = $WorkspaceRoot
+    architect  = $architect
+    openPencil = Join-Path $architect 'open-pencil'
+    analyzer   = Analyzer-Root
+    catalog    = Catalog-Root
+    fabric     = Fabric-Root
+    frontend   = Analyzer-Frontend-Root
+    parser     = Repo-Path (Find-Repo 'antlr')
+    gateway    = Repo-Path (Find-Repo 'gateway')
+  }
+}
+
+function Assert-ReleaseSourceState([System.Collections.IDictionary]$Sources) {
+  foreach ($entry in $Sources.GetEnumerator()) {
+    Assert-CleanReleaseRepository $entry.Key $entry.Value
+  }
+
+  $architect = [string]$Sources.architect
+  $statusLines = @(& git -C $architect submodule status --recursive)
+  if ($LASTEXITCODE -ne 0) {
+    throw 'could not inspect Architect submodules'
+  }
+  $invalid = @($statusLines | Where-Object { $_ -notmatch '^ ' })
+  if ($invalid.Count -gt 0) {
+    throw "Architect submodules are not at parent-recorded commits: $($invalid -join '; ')"
+  }
+}
+
+function Build-ReleaseImage(
+  [string]$Name,
+  [string]$Tag,
+  [string]$Context,
+  [string]$Revision
+) {
+  Info "building release image: $Name"
+  Invoke-Checked 'docker.exe' @(
+    'build',
+    '--label', "org.opencontainers.image.revision=$Revision",
+    '--label', "org.uengine.robo.component=$Name",
+    '--tag', $Tag,
+    $Context
+  ) $WorkspaceRoot
+}
+
+function Get-DockerImageId([string]$Tag) {
+  $imageId = (& docker.exe image inspect $Tag --format '{{.Id}}').Trim()
+  if ($LASTEXITCODE -ne 0 -or $imageId -notmatch '^sha256:[a-f0-9]{64}$') {
+    throw "could not resolve Docker image identity: $Tag"
+  }
+  return $imageId
+}
+
+function Build-DesktopRelease {
+  if ($Profile -ne 'architect-electron') {
+    throw 'release is supported only for architect-electron'
+  }
+
+  Info 'checking immutable release inputs'
+  $sources = Get-ReleaseSources
+  Assert-ReleaseSourceState $sources
+  Invoke-Checked 'docker.exe' @('info', '--format', '{{.ServerVersion}}') $WorkspaceRoot
+
+  $commits = [ordered]@{}
+  foreach ($entry in $sources.GetEnumerator()) {
+    $commits[$entry.Key] = Get-GitCommit $entry.Value
+  }
+  $desktopPackage = Get-Content -Raw -Encoding UTF8 (Join-Path $sources.architect 'desktop\package.json') | ConvertFrom-Json
+  $releaseId = '{0}-w{1}-a{2}' -f $desktopPackage.version, $commits.workspace.Substring(0, 8), $commits.architect.Substring(0, 8)
+  $runtimeRoot = Join-Path $sources.architect 'desktop\resources\runtime'
+  $releaseRoot = Join-Path $WorkspaceRoot "_releases\$releaseId"
+  $imageArchive = Join-Path $runtimeRoot 'robo-images.tar'
+
+  $images = [ordered]@{
+    neo4j   = 'neo4j:5.26.0'
+    analyzer = "uengine/robo-analyzer:$releaseId"
+    catalog  = "uengine/robo-data-catalog:$releaseId"
+    fabric   = "uengine/robo-data-fabric:$releaseId"
+    parser   = "uengine/robo-antlr-parser:$releaseId"
+    gateway  = "uengine/robo-api-gateway:$releaseId"
+  }
+
+  Info "release id: $releaseId"
+  Invoke-Checked 'docker.exe' @('pull', $images.neo4j) $WorkspaceRoot
+  Build-ReleaseImage 'analyzer' $images.analyzer $sources.analyzer $commits.analyzer
+  Build-ReleaseImage 'catalog' $images.catalog $sources.catalog $commits.catalog
+  Build-ReleaseImage 'fabric' $images.fabric $sources.fabric $commits.fabric
+  Build-ReleaseImage 'parser' $images.parser $sources.parser $commits.parser
+  Build-ReleaseImage 'gateway' $images.gateway $sources.gateway $commits.gateway
+
+  Info 'building bundled Architect API runtime'
+  Invoke-Checked 'powershell.exe' @(
+    '-NoProfile',
+    '-ExecutionPolicy', 'Bypass',
+    '-File', (Join-Path $sources.architect 'scripts\build-packaged-runtime.ps1'),
+    '-OutputRoot', $runtimeRoot
+  ) $sources.architect
+
+  Copy-Item -LiteralPath (Join-Path $sources.architect 'desktop\runtime\compose.yml') -Destination (Join-Path $runtimeRoot 'compose.yml') -Force
+  $imageList = @($images.Values)
+  Info 'creating offline Docker image archive'
+  Invoke-Checked 'docker.exe' (@('save', '--output', $imageArchive) + $imageList) $WorkspaceRoot
+  $archiveSha = (Get-FileHash -Algorithm SHA256 -LiteralPath $imageArchive).Hash.ToLowerInvariant()
+
+  $templatePath = Join-Path $sources.architect 'desktop\runtime\runtime-manifest.template.json'
+  $manifest = Get-Content -Raw -Encoding UTF8 $templatePath | ConvertFrom-Json
+  $manifest.releaseId = $releaseId
+  $manifest.imageArchiveSha256 = $archiveSha
+  foreach ($name in $images.Keys) {
+    $manifest.images.$name = $images[$name]
+    $manifest.imageIds.$name = Get-DockerImageId $images[$name]
+  }
+  foreach ($name in $commits.Keys) {
+    $manifest.source.$name = $commits[$name]
+  }
+  $manifestPath = Join-Path $runtimeRoot 'runtime-manifest.json'
+  $manifestJson = $manifest | ConvertTo-Json -Depth 8
+  [IO.File]::WriteAllText(
+    $manifestPath,
+    "$manifestJson`n",
+    (New-Object Text.UTF8Encoding($false))
+  )
+
+  Build-CoLocatedFrontend
+  $desktop = Join-Path $sources.architect 'desktop'
+  Invoke-Checked 'npm.cmd' @('run', 'build') $desktop
+  Invoke-Checked 'npx.cmd' @('electron-builder') $desktop
+  $installer = Get-ChildItem (Join-Path $desktop 'out\dist') -Filter 'Robo-Architect-Setup-*.exe' |
+    Sort-Object LastWriteTime -Descending |
+    Select-Object -First 1 -ExpandProperty FullName
+  if (-not $installer -or -not (Test-Path $installer)) {
+    throw 'release packager completed but the installer was not found'
+  }
+
+  New-Item -ItemType Directory -Force -Path $releaseRoot | Out-Null
+  $releaseInstaller = Join-Path $releaseRoot "Robo-Architect-Setup-$releaseId.exe"
+  Copy-Item -LiteralPath $installer -Destination $releaseInstaller -Force
+  Copy-Item -LiteralPath $manifestPath -Destination (Join-Path $releaseRoot 'runtime-manifest.json') -Force
+  $installerSha = (Get-FileHash -Algorithm SHA256 -LiteralPath $releaseInstaller).Hash.ToLowerInvariant()
+  "$installerSha  $(Split-Path $releaseInstaller -Leaf)" |
+    Set-Content -LiteralPath (Join-Path $releaseRoot 'SHA256SUMS') -Encoding ascii
+
+  Pass "release ready: $releaseRoot"
+  Write-Host "Installer: $releaseInstaller"
+  Write-Host "SHA256:    $installerSha"
+}
+
 function Prepare-ProfileArtifacts {
   if($SkipBuild){Warn '-SkipBuild is no longer needed; existing build output will be used';return}
   if($Profile -eq 'architect-web'){
@@ -551,7 +722,9 @@ function Stop-ServicePortListener($Service) {
 
 function Expand-ServiceValue([string]$Value) {
   $architect=if(Find-Repo 'architect'){Repo-Path(Find-Repo 'architect')}else{''}
-  return $Value.Replace('${ARCHITECT_DIR}',$architect)
+  return $Value.
+    Replace('${ARCHITECT_DIR}',$architect).
+    Replace('${PROJECT_ROOT}',$ProjectRoot)
 }
 
 function Get-SelectedService {
@@ -732,5 +905,6 @@ if($env:ROBO_WORKSPACE_TEST_MODE-ne'1'){
     'logs'{Show-Logs}
     'down'{if($ServiceId){Stop-SelectedService}elseif($Profile-eq'all'){Stop-AllProfiles}else{Stop-Owned;if($ForcePorts){Stop-ProfilePortListeners}}}
     'build'{Build-Desktop}
+    'release'{Build-DesktopRelease}
   }
 }

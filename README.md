@@ -1,5 +1,8 @@
 # Robo Workspace
 
+완전한 Windows 설치본 생성 방법은
+[Robo Architect Electron release](docs/architect-electron-release.md)를 참고하세요.
+
 Robo Workspace는 여러 개로 나뉜 Robo Git 저장소를 **한 번에 준비하고 실행하고
 종료하는 Windows용 관리 도구**입니다.
 

@@ -4,7 +4,7 @@ $names=@(
   'ROBO_WORKSPACE_TEST_MODE',
   'ROBO_NEO4J_URI','ROBO_NEO4J_USER','ROBO_NEO4J_PASSWORD','ROBO_NEO4J_DATABASE',
   'NEO4J_URI','NEO4J_USER','NEO4J_PASSWORD','NEO4J_DATABASE',
-  'ANALYZER_NEO4J_DATABASE'
+  'ANALYZER_NEO4J_DATABASE','ROBO_DATA_DIR'
 )
 $previous=@{}
 $fixture=Join-Path $PSScriptRoot 'fixtures\workspace.env'
@@ -38,6 +38,19 @@ try{
     throw 'Architect Analyzer database did not inherit the Workspace database'
   }
   $manifest=Get-Content -LiteralPath (Join-Path $WorkspaceRoot 'workspace.json') -Raw | ConvertFrom-Json
+  if(-not(Get-Command Build-DesktopRelease -ErrorAction SilentlyContinue)){
+    throw 'One-command Electron release entrypoint is missing'
+  }
+  $architectRoot=Repo-Path(Find-Repo 'architect')
+  foreach($relative in @(
+    'desktop\runtime\compose.yml',
+    'desktop\runtime\runtime-manifest.template.json',
+    'scripts\build-packaged-runtime.ps1'
+  )){
+    if(-not(Test-Path(Join-Path $architectRoot $relative))){
+      throw "Electron release input is missing: $relative"
+    }
+  }
   $architectApi=$manifest.services|Where-Object id -eq 'architect-api'
   if($architectApi.env.API_PORT-ne'8501'-or$architectApi.env.ROBO_SPEC_BACKEND_URL-ne'http://127.0.0.1:8501'){
     throw 'Architect Code/MCP environment does not follow the actual web API port'
@@ -45,6 +58,22 @@ try{
   $mainAnalyzer=$manifest.repositories|Where-Object id -eq 'analyzer'
   if(@($mainAnalyzer.profiles).Count-ne 1-or$mainAnalyzer.profiles[0]-ne'analyzer'){
     throw 'Analyzer main repository must belong only to the analyzer profile'
+  }
+  $mainAnalyzerService=@($manifest.services|Where-Object{$_.id-eq'analyzer'-and$_.profiles-contains'analyzer'})
+  if($mainAnalyzerService.Count-ne1-or
+     $mainAnalyzerService[0].env.ROBO_DATA_DIR-ne'${PROJECT_ROOT}/data'){
+    throw 'Analyzer server must consume the shared upload workspace, not a CLI corpus path'
+  }
+  $antlrService=@($manifest.services|Where-Object id -eq 'antlr')
+  if($antlrService.Count-ne1-or$antlrService[0].env.ROBO_DATA_DIR-ne'${PROJECT_ROOT}/data'){
+    throw 'ANTLR and Analyzer must receive the same shared upload workspace'
+  }
+  $expandedDataDir=Expand-ServiceValue([string]$mainAnalyzerService[0].env.ROBO_DATA_DIR)
+  $expandedAntlrDataDir=Expand-ServiceValue([string]$antlrService[0].env.ROBO_DATA_DIR)
+  $expectedDataDir=Join-Path $ProjectRoot 'data'
+  if([IO.Path]::GetFullPath($expandedDataDir)-ne[IO.Path]::GetFullPath($expectedDataDir)-or
+     [IO.Path]::GetFullPath($expandedAntlrDataDir)-ne[IO.Path]::GetFullPath($expectedDataDir)){
+    throw "Shared upload workspace expansion mismatch: analyzer=$expandedDataDir antlr=$expandedAntlrDataDir"
   }
   $mainCatalog=@($manifest.services|Where-Object{$_.id-eq'catalog'-and$_.profiles-contains'analyzer'})
   if($mainCatalog.Count-ne1-or$mainCatalog[0].repo-ne'catalog'-or$mainCatalog[0].cwd-ne'.'-or
