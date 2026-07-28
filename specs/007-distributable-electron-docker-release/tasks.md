@@ -14,5 +14,5 @@
 - [x] T012 Workspace canonical environment catalog and scoped snapshots
 - [x] T013 Fresh-checkout one-command source/dependency preparation
 - [x] T014 Live GPU client/call plus Neo4j analysis verification
-- [ ] T015 Final installer, documentation, commit/push and clean-state audit
+- [x] T015 Final installer, documentation, commit/push and clean-state audit
 - [ ] T016 Packaged PostgreSQL datasource live integration and restart-persistence verification
