@@ -28,10 +28,17 @@ function Get-LiteralKeys(
     if (-not (Test-Path -LiteralPath $file)) { continue }
     $source = Get-Content -LiteralPath $file -Raw -Encoding UTF8
     if ($null -eq $source) { continue }
-    foreach ($match in [regex]::Matches($source, '["'']([A-Z][A-Z0-9_]{2,})["'']')) {
-      $name = $match.Groups[1].Value
-      if (@($Prefixes | Where-Object { $name.StartsWith($_, [StringComparison]::Ordinal) }).Count) {
-        [void]$keys.Add($name)
+    $patterns = @(
+      '(?i)(?:[A-Za-z_][A-Za-z0-9_]*getenv[A-Za-z0-9_]*|environ\.get|_strict_bool|_bounded_(?:int|float))\s*\(\s*["'']([A-Z][A-Z0-9_]{2,})["'']',
+      '(?i)environ\s*\[\s*["'']([A-Z][A-Z0-9_]{2,})["'']\s*\]',
+      '(?i)(?:setting|booleanSetting|longSetting|intSetting|optionalBooleanSetting|optionalPositiveIntSetting|optionalReasoningEffortSetting)\s*\(\s*[^,]+,\s*["'']([A-Z][A-Z0-9_]{2,})["'']'
+    )
+    foreach ($pattern in $patterns) {
+      foreach ($match in [regex]::Matches($source, $pattern)) {
+        $name = $match.Groups[1].Value
+        if (@($Prefixes | Where-Object { $name.StartsWith($_, [StringComparison]::Ordinal) }).Count) {
+          [void]$keys.Add($name)
+        }
       }
     }
   }
@@ -78,11 +85,8 @@ $sourceSets = [ordered]@{}
 
 $analyzerRoot = Join-Path $projectRoot 'robo-data-analyzer'
 $sourceSets.analyzer = Get-LiteralKeys @(
-  (Join-Path $analyzerRoot 'shared\config\settings.py'),
-  (Join-Path $analyzerRoot 'search\config.py'),
-  (Join-Path $analyzerRoot 'search\query\rewrite.py'),
-  (Join-Path $analyzerRoot 'search\ranking\rerank.py'),
-  (Join-Path $analyzerRoot 'search\query\judge.py')
+  (Join-Path $analyzerRoot 'shared\config\app_settings.py'),
+  (Join-Path $analyzerRoot 'search\search_config.py')
 ) @('ROBO_')
 
 $catalogRoot = Join-Path $projectRoot 'robo-data-catalog'
@@ -139,6 +143,7 @@ $mappedTopology = @(
 $missing = @()
 foreach ($entry in $sourceSets.GetEnumerator()) {
   foreach ($name in @($entry.Value)) {
+    if ($name -isnot [string] -or [string]::IsNullOrWhiteSpace($name)) { continue }
     if ($mappedTopology -contains $name) { continue }
     if (-not $templateKeys.Contains($name)) {
       $missing += "$($entry.Key):$name"
@@ -152,7 +157,7 @@ if ($missing.Count) {
 $criticalPackaged = [ordered]@{
   analyzer = @(
     'ROBO_LLM_CONFIG', 'ROBO_EMBED_MODEL', 'ROBO_SEARCH_DENSE_IMPL',
-    'ROBO_PIPELINE_MAX_CONCURRENCY', 'ROBO_SEM_UNIFIED'
+    'ROBO_PIPELINE_MAX_CONCURRENCY', 'ROBO_PIPELINE_LLM_MAX_CONCURRENCY'
   )
   catalog = @(
     'LLM_API_BASE', 'LLM_MAX_COMPLETION_TOKENS', 'EMBEDDING_MODEL',

@@ -206,7 +206,7 @@ Fabric의 MindsDB 설정과 튜닝값을 서비스별 env snapshot으로 나눠 
 Neo4j 인증·`ROBO_DATA_DIR`·Docker 내부 URL·동적 포트는 설치판이 직접 관리합니다.
 
 기본 `.env.example`은 사내 GPU 서버의
-`qwen36_sglang_local / frentis-ai-model`을 선택합니다. 즉시 실행을 위해 내부 API
+`qwen38_sglang_local / frentis-ai-model`을 선택합니다. 즉시 실행을 위해 내부 API
 credential도 설치파일에 포함되므로 설치파일은 내부 배포물입니다. 값은 Git,
 manifest 본문, 로그에는 기록되지 않지만 설치파일 수신자는 추출할 수 있습니다.
 

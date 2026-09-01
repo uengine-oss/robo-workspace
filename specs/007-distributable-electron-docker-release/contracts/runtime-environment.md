@@ -15,7 +15,7 @@ change a release.
 - `OPENAI_BASE_URL`
 - `OPENAI_API_KEY`
 
-The committed `.env.example` selects `qwen36_sglang_local`,
+The committed `.env.example` selects `qwen38_sglang_local`,
 `frentis-ai-model`, and the internal OpenAI-compatible SGLang endpoint.
 
 ## Service scopes

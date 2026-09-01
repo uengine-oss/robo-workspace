@@ -53,7 +53,7 @@ Docker Desktop만 설치한다.
    - Given Workspace `.env`에 서비스별 runtime 값이 있다.
    - When release를 만든다.
    - Then 값은 Analyzer/Catalog/Fabric/Architect용 최소 권한 env snapshot으로 분리되고,
-     설치판 Analyzer는 `qwen36_sglang_local` GPU 설정으로 LLM client를 구성한다.
+     설치판 Analyzer는 `qwen38_sglang_local` GPU 설정으로 LLM client를 구성한다.
 9. **Electron local-folder analysis**
    - Given Windows의 `shop_mall` 폴더에 C source와 schema SQL이 함께 있다.
    - When 설치판 Electron에서 그 폴더를 선택해 분석한다.

@@ -70,7 +70,7 @@ Docker images와 Windows Python까지 넣은 전달본은 `release`로만 만듭
 `.env.example`을 복사하고 비밀 값만 채웁니다.
 
 ```dotenv
-ROBO_LLM_CONFIG=qwen36_sglang_local
+ROBO_LLM_CONFIG=qwen38_sglang_local
 ROBO_LLM_API_KEY=<internal-key>
 LLM_PROVIDER=openai
 LLM_MODEL=frentis-ai-model
@@ -136,7 +136,7 @@ snapshot을 사용했습니다.
 - runtime 서비스 전체 health 통과
 - 한 폴더의 13개 파일 업로드: C/H source 12개, schema DDL 1개 자동 분류
 - 12개 exact AST, 12,344 lines, recovered/partial/unresolved/failed 0
-- `qwen36_sglang_local` → 사내 SGLang `frentis-ai-model` 실제 호출 완료
+- `qwen38_sglang_local` → 사내 SGLang `frentis-ai-model` 실제 호출 완료
 - `BAAI/bge-m3` embedding 완료
 - Neo4j 4,274 nodes, 11,586 relationships 생성
 - PostgreSQL sample DB 22 tables와 row, FK inference function을 실제 생성하고

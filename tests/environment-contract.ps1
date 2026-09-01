@@ -68,7 +68,7 @@ try{
     if($actualHash-ne$snapshots[$scope].sha256){throw "Release environment hash mismatch: $scope"}
   }
   $analyzerEnv=Get-Content -LiteralPath(Join-Path $releaseEnvRoot $snapshots.analyzer.file)-Raw
-  if($analyzerEnv-notmatch'(?m)^ROBO_LLM_CONFIG=qwen36_sglang_local$'-or
+  if($analyzerEnv-notmatch'(?m)^ROBO_LLM_CONFIG=qwen38_sglang_local$'-or
      $analyzerEnv-notmatch'(?m)^ROBO_LLM_API_KEY=fixture-internal-key$'){
     throw 'Analyzer packaged environment does not select the internal GPU config'
   }
