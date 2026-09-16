@@ -620,11 +620,20 @@ function Build-DesktopRelease {
     fabric   = "uengine/robo-data-fabric:$releaseId"
     parser   = "uengine/robo-antlr-parser:$releaseId"
     gateway  = "uengine/robo-api-gateway:$releaseId"
+    # Document -> BPMN. Pinned upstream image (2.06 GB): we mount our own
+    # facade.py over it, so the image itself never needs rebuilding. Without
+    # it in the archive the customer site has no way to get it -- there is no
+    # internet there. And its absence does NOT look like a failure: Architect
+    # falls back and the screen still shows a BPM, so nobody notices that the
+    # in-house service never ran.
+    pdf2bpmn = 'ghcr.io/uengine-oss/process-gpt-bpmn-extractor:8156f77'
   }
 
   Info "release id: $releaseId"
   Invoke-Checked 'docker.exe' @('pull', $images.neo4j) $WorkspaceRoot
   Invoke-Checked 'docker.exe' @('pull', $images.mindsdb) $WorkspaceRoot
+  # amd64 only upstream; the runtime compose declares the same platform.
+  Invoke-Checked 'docker.exe' @('pull', '--platform', 'linux/amd64', $images.pdf2bpmn) $WorkspaceRoot
   Build-ReleaseImage 'analyzer' $images.analyzer $sources.analyzer $commits.analyzer
   Build-ReleaseImage 'catalog' $images.catalog $sources.catalog $commits.catalog
   Build-ReleaseImage 'fabric' $images.fabric $sources.fabric $commits.fabric
@@ -640,6 +649,16 @@ function Build-DesktopRelease {
   ) $sources.architect
 
   Copy-Item -LiteralPath (Join-Path $sources.architect 'desktop\runtime\compose.yml') -Destination (Join-Path $runtimeRoot 'compose.yml') -Force
+  # The pdf2bpmn service mounts ./pdf2bpmn/facade.py. A bind mount whose source
+  # is missing does not fail loudly -- Docker creates an empty DIRECTORY at that
+  # path and uvicorn then starts with no app. Copy it, and fail here if absent.
+  $facadeSource = Join-Path $sources.architect 'desktop\runtime\pdf2bpmn\facade.py'
+  if (-not (Test-Path -LiteralPath $facadeSource)) {
+    throw "release.missing_facade: $facadeSource"
+  }
+  $facadeTarget = Join-Path $runtimeRoot 'pdf2bpmn'
+  New-Item -ItemType Directory -Force -Path $facadeTarget | Out-Null
+  Copy-Item -LiteralPath $facadeSource -Destination (Join-Path $facadeTarget 'facade.py') -Force
   Info 'writing service-scoped packaged environment'
   $environmentSnapshots=Write-ReleaseEnvironmentSnapshots $runtimeRoot
   $imageList = @($images.Values)
