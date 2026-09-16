@@ -60,7 +60,7 @@ try{
   $originalWorkspaceEnvPath=$WorkspaceEnvPath
   $WorkspaceEnvPath=$releaseFixture
   $snapshots=Write-ReleaseEnvironmentSnapshots $releaseEnvRoot
-  foreach($scope in @('analyzer','catalog','fabric','parser','gateway','architect')){
+  foreach($scope in @('analyzer','catalog','fabric','parser','gateway','pdf2bpmn','architect')){
     if(-not$snapshots.Contains($scope)){throw "Release environment snapshot missing scope: $scope"}
     $snapshotFile=Join-Path $releaseEnvRoot $snapshots[$scope].file
     if(-not(Test-Path -LiteralPath $snapshotFile)){throw "Release environment file missing: $scope"}
@@ -118,14 +118,14 @@ try{
      $manifestTemplate.imageIds.mindsdb-notmatch'^sha256:IMAGE_ID_MINDSDB$'){
     throw 'Packaged runtime manifest must pin the app-owned MindsDB image'
   }
-  foreach($scope in @('analyzer','catalog','fabric','parser','gateway','architect')){
+  foreach($scope in @('analyzer','catalog','fabric','parser','gateway','pdf2bpmn','architect')){
     if(-not$manifestTemplate.environment.$scope.file-or
        $manifestTemplate.environment.$scope.sha256-notmatch'^ENV_SHA256_'){
       throw "Runtime manifest environment declaration is incomplete: $scope"
     }
   }
   $composeSource=Get-Content -LiteralPath(Join-Path $architectRoot 'desktop\runtime\compose.yml')-Raw
-  foreach($scope in @('analyzer','catalog','fabric','parser','gateway')){
+  foreach($scope in @('analyzer','catalog','fabric','parser','gateway','pdf2bpmn')){
     if($composeSource-notmatch[regex]::Escape("./config/$scope.env")){
       throw "Compose does not load the scoped environment: $scope"
     }

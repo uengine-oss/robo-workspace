@@ -93,6 +93,18 @@
       ],
       "names": []
     },
+    "pdf2bpmn": {
+      "file": "config/pdf2bpmn.env",
+      "prefixes": [],
+      "names": [
+        "LLM_BASE_URL",
+        "LLM_MODEL",
+        "OPENAI_API_KEY",
+        "OPENAI_BASE_URL",
+        "OPENAI_MODEL",
+        "FACADE_API_KEY"
+      ]
+    },
     "architect": {
       "file": "architect/app/.env",
       "prefixes": [

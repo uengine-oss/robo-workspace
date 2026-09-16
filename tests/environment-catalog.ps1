@@ -165,6 +165,10 @@ $criticalPackaged = [ordered]@{
   )
   fabric = @('DATA_FABRIC_QUERY_TIMEOUT_SECONDS', 'MINDSDB_REPLACE_LOCALHOST')
   parser = @('PARSER_REPAIR_AGENT_ENABLED', 'PARSER_REPAIR_AGENT_TIMEOUT_SECONDS')
+  # Without these the container silently reaches for api.openai.com; on a closed
+  # network that does not surface as an error at all -- Architect falls back and
+  # the screen still shows a BPM, so the dead container goes unnoticed.
+  pdf2bpmn = @('LLM_BASE_URL', 'OPENAI_API_KEY', 'OPENAI_MODEL')
   architect = @(
     'LLM_PROVIDER', 'OPENAI_BASE_URL', 'CHANGE_PROPAGATION_ENABLED',
     'INGESTION_BATCH_SIZE', 'HYBRID_EMBED_TOP_K', 'WIREFRAME_LLM_CONCURRENCY',
