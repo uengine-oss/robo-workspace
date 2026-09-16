@@ -147,7 +147,10 @@ function Write-ReleaseEnvironmentSnapshots([string]$RuntimeRoot) {
       throw "Release environment path must stay inside runtime: $relative"
     }
     $target=[IO.Path]::GetFullPath((Join-Path $RuntimeRoot $relative))
-    $runtimePrefix=[IO.Path]::GetFullPath($RuntimeRoot).TrimEnd('\')+'\'
+    # Same guard, spelled portably: hard-coding '\' makes this throw on every
+    # non-Windows host, which is what kept the contract test Windows-only.
+    $sep=[IO.Path]::DirectorySeparatorChar
+    $runtimePrefix=[IO.Path]::GetFullPath($RuntimeRoot).TrimEnd($sep)+$sep
     if(-not$target.StartsWith($runtimePrefix,[StringComparison]::OrdinalIgnoreCase)){
       throw "Release environment path escapes runtime: $relative"
     }

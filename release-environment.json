@@ -95,6 +95,7 @@
     },
     "pdf2bpmn": {
       "file": "config/pdf2bpmn.env",
+      "prefixes": [],
       "names": [
         "LLM_BASE_URL",
         "LLM_MODEL",
