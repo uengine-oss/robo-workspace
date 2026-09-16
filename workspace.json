@@ -6,7 +6,7 @@
     {"id":"frontend","path":"robo-data-frontend","url":"https://github.com/uengine-oss/robo-data-frontend.git","branch":"main","profiles":["analyzer"]},
     {"id":"fabric","path":"robo-data-fabric","url":"https://github.com/uengine-oss/robo-data-fabric.git","branch":"main","profiles":["analyzer"]},
     {"id":"catalog","path":"robo-data-catalog","url":"https://github.com/uengine-oss/robo-data-catalog.git","branch":"main","profiles":["analyzer"]},
-    {"id":"architect","path":"robo-architect","url":"https://github.com/uengine-oss/robo-architect.git","branch":"main","profiles":["architect-web","architect-electron"]}
+    {"id":"architect","path":"robo-architect","url":"https://github.com/uengine-oss/robo-architect.git","branch":"enterprise-custom-p","profiles":["architect-web","architect-electron"]}
   ],
   "services": [
     {"id":"analyzer","repo":"analyzer","cwd":".","file":".venv/Scripts/python.exe","args":["-m","uvicorn","main:app","--host","127.0.0.1","--port","15502"],"env":{"ROBO_CATALOG_BASE_URL":"http://127.0.0.1:15503/robo","ROBO_DATA_DIR":"${PROJECT_ROOT}/data"},"port":15502,"health":"http://127.0.0.1:15502/","timeout":90,"profiles":["analyzer"]},
