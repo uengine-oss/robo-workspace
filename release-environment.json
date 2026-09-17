@@ -27,6 +27,20 @@
     "your-api-key-here",
     "sk-your-api-key-here"
   ],
+  "forbiddenValuePatterns": [
+    {
+      "pattern": "ai-server\\.dream-flow\\.com",
+      "reason": "개발사 사내 GPU 엔드포인트 — 고객 환경에서 닿지 않는다"
+    },
+    {
+      "pattern": "frentis-ai-model",
+      "reason": "개발사 사내 모델 배포명 — 고객 게이트웨이에는 없다"
+    },
+    {
+      "pattern": "qwen38_sglang_local",
+      "reason": "개발사 사내 GPU 를 가리키는 LLM 설정 이름"
+    }
+  ],
   "scopes": {
     "analyzer": {
       "file": "config/analyzer.env",

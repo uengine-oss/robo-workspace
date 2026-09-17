@@ -12,6 +12,7 @@ $invalidFixture=Join-Path $PSScriptRoot 'fixtures\workspace-invalid.env'
 $systemFixture=Join-Path $PSScriptRoot 'fixtures\workspace-system.env'
 $releaseEnvRoot=Join-Path $WorkspaceRoot '_runs\release-environment-contract'
 $releaseFixture=Join-Path $PSScriptRoot 'fixtures\release.env'
+$internalEndpointFixture=Join-Path $PSScriptRoot 'fixtures\release-internal-endpoint.env'
 $originalWorkspaceEnvPath=$null
 
 try{
@@ -48,14 +49,35 @@ try{
     throw 'Workspace-only release preparation entrypoint is missing'
   }
   $releaseTemplateErrors=@(Get-ReleaseEnvironmentConfigurationErrors(Join-Path $WorkspaceRoot '.env.example'))
+  # **이 검사를 개수 검사보다 먼저 한다.** 개수를 먼저 보면 사내 주소가 하나 늘어난
+  # 것도 "자격증명 개수가 안 맞는다" 로 보고돼, 원인을 엉뚱한 데서 찾게 된다.
+  # 이 파일은 git 추적 대상이라 납품 자산에 그대로 실려 나간다.
+  if(@($releaseTemplateErrors|Where-Object{$_-match'developer-internal target'}).Count-ne 0){
+    throw 'Committed release template still points at a developer-internal target'
+  }
   if($releaseTemplateErrors.Count-ne2-or
      @($releaseTemplateErrors|Where-Object{$_-match'ROBO_LLM_API_KEY'}).Count-ne1-or
      @($releaseTemplateErrors|Where-Object{$_-match'OPENAI_API_KEY'}).Count-ne1){
-    throw 'Committed release template must require both internal GPU credentials'
+    throw 'Committed release template must require both LLM credentials'
   }
   $releaseErrors=@(Get-ReleaseEnvironmentConfigurationErrors $releaseFixture)
   if($releaseErrors.Count){
     throw "Release environment fixture is incomplete: $($releaseErrors-join'; ')"
+  }
+
+  # 값이 **맞는지**도 본다. 비어 있지 않고 placeholder 도 아니면서 개발사 사내 주소가
+  # 그대로 들어 있는 경우가 실제로 있었다 — 그러면 앞의 두 검사는 전부 통과하고,
+  # 증상은 기동이 아니라 **첫 LLM 호출**에서 나온다.
+  $internalErrors=@(Get-ReleaseEnvironmentConfigurationErrors $internalEndpointFixture)
+  if(@($internalErrors|Where-Object{$_-match'developer-internal target'}).Count-lt 1){
+    throw 'Release gate did not reject a developer-internal endpoint'
+  }
+  if(@($internalErrors|Where-Object{$_-match'LLM_API_BASE'}).Count-ne 1){
+    throw 'Release gate did not name the offending key'
+  }
+  # 값은 메시지에 싣지 않는다 — 이 관문에 걸리는 키에는 자격증명도 섞인다.
+  if(@($internalErrors|Where-Object{$_-match'fixture-internal-key'}).Count-ne 0){
+    throw 'Release gate leaked a packaged value into its message'
   }
   $originalWorkspaceEnvPath=$WorkspaceEnvPath
   $WorkspaceEnvPath=$releaseFixture
@@ -68,9 +90,12 @@ try{
     if($actualHash-ne$snapshots[$scope].sha256){throw "Release environment hash mismatch: $scope"}
   }
   $analyzerEnv=Get-Content -LiteralPath(Join-Path $releaseEnvRoot $snapshots.analyzer.file)-Raw
-  if($analyzerEnv-notmatch'(?m)^ROBO_LLM_CONFIG=qwen38_sglang_local$'-or
+  # **여기가 고정하는 것은 "어느 모델인가" 가 아니라 "scope 가 옮겨지는가" 다.**
+  # 예전에는 개발사 사내 GPU 설정 이름을 기대값으로 박아 두어, 고객 값으로 바꾸면
+  # 검사가 실패했다 — 검사가 내부 주소를 제자리에 못 박고 있었다.
+  if($analyzerEnv-notmatch'(?m)^ROBO_LLM_CONFIG=gpt54_mini_openai$'-or
      $analyzerEnv-notmatch'(?m)^ROBO_LLM_API_KEY=fixture-internal-key$'){
-    throw 'Analyzer packaged environment does not select the internal GPU config'
+    throw 'Analyzer packaged environment does not carry its LLM config scope'
   }
   if($analyzerEnv-match'(?m)^ROBO_NEO4J_(URI|USER|PASSWORD|DATABASE)='-or
      $analyzerEnv-match'(?m)^ROBO_DATA_DIR='){
@@ -79,10 +104,10 @@ try{
   $catalogEnv=Get-Content -LiteralPath(Join-Path $releaseEnvRoot $snapshots.catalog.file)-Raw
   $fabricEnv=Get-Content -LiteralPath(Join-Path $releaseEnvRoot $snapshots.fabric.file)-Raw
   $architectEnv=Get-Content -LiteralPath(Join-Path $releaseEnvRoot $snapshots.architect.file)-Raw
-  if($catalogEnv-notmatch'(?m)^LLM_API_BASE=http://ai-server\.dream-flow\.com:30000/v1$'-or
+  if($catalogEnv-notmatch'(?m)^LLM_API_BASE=https://api\.openai\.com/v1$'-or
      $catalogEnv-notmatch'(?m)^LLM_MAX_COMPLETION_TOKENS=4096$'-or
-     $architectEnv-notmatch'(?m)^OPENAI_BASE_URL=http://ai-server\.dream-flow\.com:30000/v1$'){
-    throw 'Catalog/Architect packaged GPU endpoint mapping is incomplete'
+     $architectEnv-notmatch'(?m)^OPENAI_BASE_URL=https://api\.openai\.com/v1$'){
+    throw 'Catalog/Architect packaged endpoint mapping is incomplete'
   }
   if($architectEnv-notmatch'(?m)^HYBRID_EMBED_TOP_K=3$'-or
      $architectEnv-notmatch'(?m)^WIREFRAME_LLM_CONCURRENCY=4$'){
