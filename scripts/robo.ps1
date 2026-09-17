@@ -115,6 +115,33 @@ function Get-ReleaseEnvironmentConfigurationErrors([string]$Path=$WorkspaceEnvPa
       $errors+="Packaged runtime credential still uses a placeholder: $name"
     }
   }
+  # 포장할 때는 "값이 있나" 만으로 부족하다 — "맞는 값인가" 도 본다.
+  #
+  # 비어 있는지와 placeholder 인지는 이미 본다. 그런데 **개발사 사내 주소가 그대로
+  # 들어 있으면** 둘 다 통과한다 — 값이 있고 placeholder 도 아니기 때문이다. 그러면
+  # 고객 환경에서 닿지 않는 엔드포인트가 납품 자산에 실려 나가고, 증상은 기동 시점이
+  # 아니라 **첫 LLM 호출에서** 나온다.
+  #
+  # 포장되는 키만 본다(scope 에 안 잡히는 값은 안 나간다). 값은 출력하지 않는다 —
+  # 여기 걸리는 키에는 자격증명도 섞인다.
+  $scopedNames=New-Object System.Collections.Generic.HashSet[string]
+  foreach($property in $contract.scopes.PSObject.Properties){
+    foreach($key in @($values.Keys)){
+      if(Test-ReleaseEnvironmentScopeKey ([string]$key) $property.Value){
+        [void]$scopedNames.Add([string]$key)
+      }
+    }
+  }
+  foreach($entry in @($contract.forbiddenValuePatterns)){
+    $pattern=[string]$entry.pattern
+    if([String]::IsNullOrWhiteSpace($pattern)){continue}
+    foreach($name in @($scopedNames|Sort-Object)){
+      if([string]$values[$name] -match $pattern){
+        $errors+=("Packaged runtime value points at a developer-internal target: "+
+                  "$name (rule: $pattern — "+[string]$entry.reason+")")
+      }
+    }
+  }
   return @($errors)
 }
 
@@ -147,7 +174,10 @@ function Write-ReleaseEnvironmentSnapshots([string]$RuntimeRoot) {
       throw "Release environment path must stay inside runtime: $relative"
     }
     $target=[IO.Path]::GetFullPath((Join-Path $RuntimeRoot $relative))
-    $runtimePrefix=[IO.Path]::GetFullPath($RuntimeRoot).TrimEnd('\')+'\'
+    # Same guard, spelled portably: hard-coding '\' makes this throw on every
+    # non-Windows host, which is what kept the contract test Windows-only.
+    $sep=[IO.Path]::DirectorySeparatorChar
+    $runtimePrefix=[IO.Path]::GetFullPath($RuntimeRoot).TrimEnd($sep)+$sep
     if(-not$target.StartsWith($runtimePrefix,[StringComparison]::OrdinalIgnoreCase)){
       throw "Release environment path escapes runtime: $relative"
     }
@@ -620,11 +650,20 @@ function Build-DesktopRelease {
     fabric   = "uengine/robo-data-fabric:$releaseId"
     parser   = "uengine/robo-antlr-parser:$releaseId"
     gateway  = "uengine/robo-api-gateway:$releaseId"
+    # Document -> BPMN. Pinned upstream image (2.06 GB): we mount our own
+    # facade.py over it, so the image itself never needs rebuilding. Without
+    # it in the archive the customer site has no way to get it -- there is no
+    # internet there. And its absence does NOT look like a failure: Architect
+    # falls back and the screen still shows a BPM, so nobody notices that the
+    # in-house service never ran.
+    pdf2bpmn = 'ghcr.io/uengine-oss/process-gpt-bpmn-extractor:8156f77'
   }
 
   Info "release id: $releaseId"
   Invoke-Checked 'docker.exe' @('pull', $images.neo4j) $WorkspaceRoot
   Invoke-Checked 'docker.exe' @('pull', $images.mindsdb) $WorkspaceRoot
+  # amd64 only upstream; the runtime compose declares the same platform.
+  Invoke-Checked 'docker.exe' @('pull', '--platform', 'linux/amd64', $images.pdf2bpmn) $WorkspaceRoot
   Build-ReleaseImage 'analyzer' $images.analyzer $sources.analyzer $commits.analyzer
   Build-ReleaseImage 'catalog' $images.catalog $sources.catalog $commits.catalog
   Build-ReleaseImage 'fabric' $images.fabric $sources.fabric $commits.fabric
@@ -640,6 +679,16 @@ function Build-DesktopRelease {
   ) $sources.architect
 
   Copy-Item -LiteralPath (Join-Path $sources.architect 'desktop\runtime\compose.yml') -Destination (Join-Path $runtimeRoot 'compose.yml') -Force
+  # The pdf2bpmn service mounts ./pdf2bpmn/facade.py. A bind mount whose source
+  # is missing does not fail loudly -- Docker creates an empty DIRECTORY at that
+  # path and uvicorn then starts with no app. Copy it, and fail here if absent.
+  $facadeSource = Join-Path $sources.architect 'desktop\runtime\pdf2bpmn\facade.py'
+  if (-not (Test-Path -LiteralPath $facadeSource)) {
+    throw "release.missing_facade: $facadeSource"
+  }
+  $facadeTarget = Join-Path $runtimeRoot 'pdf2bpmn'
+  New-Item -ItemType Directory -Force -Path $facadeTarget | Out-Null
+  Copy-Item -LiteralPath $facadeSource -Destination (Join-Path $facadeTarget 'facade.py') -Force
   Info 'writing service-scoped packaged environment'
   $environmentSnapshots=Write-ReleaseEnvironmentSnapshots $runtimeRoot
   $imageList = @($images.Values)
