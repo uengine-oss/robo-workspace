@@ -574,6 +574,10 @@ function Get-ReleaseSources {
     frontend   = Analyzer-Frontend-Root
     parser     = Repo-Path (Find-Repo 'antlr')
     gateway    = Repo-Path (Find-Repo 'gateway')
+    # 설치본의 graph 저장소. **개발 환경의 `ontological-dev` 컨테이너와 다른 것이다** —
+    # 그쪽은 소스를 마운트해 컨테이너 안에서 빌드하고 엔트리포인트가 `sleep infinity` 라
+    # 설치본에 못 쓴다. 여기서는 `docker/Dockerfile.runtime` 의 두 타깃을 굽는다.
+    ontological = Repo-Path (Find-Repo 'ontological')
   }
 }
 
@@ -591,6 +595,25 @@ function Assert-ReleaseSourceState([System.Collections.IDictionary]$Sources) {
   if ($invalid.Count -gt 0) {
     throw "Architect submodules are not at parent-recorded commits: $($invalid -join '; ')"
   }
+}
+
+function Build-ReleaseTarget(
+  [string]$Name,
+  [string]$Tag,
+  [string]$Context,
+  [string]$Revision,
+  [string]$Target
+) {
+  Info "building release image: $Name (target $Target)"
+  Invoke-Checked 'docker.exe' @(
+    'build',
+    '--target', $Target,
+    '--file', (Join-Path $Context 'docker\Dockerfile.runtime'),
+    '--label', "org.opencontainers.image.revision=$Revision",
+    '--label', "org.uengine.robo.component=$Name",
+    '--tag', $Tag,
+    $Context
+  ) $WorkspaceRoot
 }
 
 function Build-ReleaseImage(
@@ -643,7 +666,13 @@ function Build-DesktopRelease {
   $imageArchive = Join-Path $runtimeRoot 'robo-images.tar'
 
   $images = [ordered]@{
-    neo4j   = 'neo4j:5.26.0'
+    # graph 저장소는 **Ontological 이다. Neo4j 가 아니다.**
+    # `neo4j:5.26.0` 은 Community 라 database 가 하나뿐이어서 설계 graph 와 분석 graph 를
+    # 나눌 수 없었다(2026-09-17 실측: `CREATE DATABASE` 가 Unsupported). 분석은 대상
+    # graph 를 비우고 다시 쓰므로, 나눌 수 없다는 것은 같은 graph 를 공유한다는 뜻이다.
+    # 앱 코드는 안 바뀐다 — Bolt 게이트웨이가 Neo4j 프로토콜을 그대로 말한다.
+    graphDb   = "uengine/ontological-db:$releaseId"
+    graphBolt = "uengine/ontological-bolt:$releaseId"
     mindsdb = 'mindsdb/mindsdb:v26.1.0'
     analyzer = "uengine/robo-analyzer:$releaseId"
     catalog  = "uengine/robo-data-catalog:$releaseId"
@@ -660,10 +689,15 @@ function Build-DesktopRelease {
   }
 
   Info "release id: $releaseId"
-  Invoke-Checked 'docker.exe' @('pull', $images.neo4j) $WorkspaceRoot
   Invoke-Checked 'docker.exe' @('pull', $images.mindsdb) $WorkspaceRoot
   # amd64 only upstream; the runtime compose declares the same platform.
   Invoke-Checked 'docker.exe' @('pull', '--platform', 'linux/amd64', $images.pdf2bpmn) $WorkspaceRoot
+  # graph 저장소는 다단계 빌드의 **두 타깃**이다. 하나로 묶지 않는다 — Bolt 는 상태가
+  # 없고, 묶으면 공식 postgres 엔트리포인트를 우리가 다시 만들어야 하며, 무엇보다
+  # **사람이 Bolt 를 띄우게 된다**(엔진을 다시 깔고 Bolt 를 안 띄워 psql 은 되는데 앱만
+  # 죽는 상태를 이 저장소가 반복해 밟았다).
+  Build-ReleaseTarget 'graph-db' $images.graphDb $sources.ontological $commits.ontological 'runtime-db'
+  Build-ReleaseTarget 'graph-bolt' $images.graphBolt $sources.ontological $commits.ontological 'runtime-bolt'
   Build-ReleaseImage 'analyzer' $images.analyzer $sources.analyzer $commits.analyzer
   Build-ReleaseImage 'catalog' $images.catalog $sources.catalog $commits.catalog
   Build-ReleaseImage 'fabric' $images.fabric $sources.fabric $commits.fabric
@@ -706,6 +740,15 @@ function Build-DesktopRelease {
   }
   foreach ($name in $commits.Keys) {
     $manifest.source.$name = $commits[$name]
+  }
+  # `graphs` 는 템플릿의 기본값을 그대로 쓴다. 다만 **있는지와 서로 다른지**는 여기서
+  # 본다 — 같으면 분석이 설계 graph 를 가리키게 되고, 그건 설치 뒤 첫 분석에서야
+  # 드러난다. 앱도 기동에서 거부하지만 릴리스를 굽는 자리가 더 싸다.
+  if (-not $manifest.graphs -or -not $manifest.graphs.design -or -not $manifest.graphs.analysis) {
+    throw 'release.manifest_graphs_missing: runtime-manifest.template.json 에 graphs 가 없다'
+  }
+  if ($manifest.graphs.design -eq $manifest.graphs.analysis) {
+    throw "release.manifest_graphs_same: 설계와 분석 graph 가 같다 ($($manifest.graphs.design))"
   }
   foreach($name in $environmentSnapshots.Keys){
     $manifest.environment.$name.file=$environmentSnapshots[$name].file
