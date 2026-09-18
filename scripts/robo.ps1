@@ -331,7 +331,25 @@ function Setup-Workspace {
     if (-not (Test-Path (Join-Path $path '.git'))) {
       Info "cloning $($repo.id)"
       Invoke-Checked 'git' @('clone','--branch',$repo.branch,$repo.url,$path) $ProjectRoot
-    } else { Pass "$($repo.id) already exists" }
+    } else {
+      # **"이미 있다" 로 넘기지 않는다.** 폴더가 핀과 다른 저장소·브랜치를 가리키고
+      # 있으면 setup 은 조용히 통과하고, 증상은 release 중간의 "파일이 없다" 로
+      # 나타난다. 2026-09-18 에 정확히 그 부류를 밟았다.
+      $actualUrl=(git -C $path remote get-url origin 2>$null)
+      $actualBranch=(git -C $path branch --show-current 2>$null)
+      $mismatch=@()
+      if($actualUrl -and $actualUrl.TrimEnd('/') -ne ([string]$repo.url).TrimEnd('/')){
+        $mismatch += "url=$actualUrl (핀: $($repo.url))"
+      }
+      if($actualBranch -and $actualBranch -ne $repo.branch){
+        $mismatch += "branch=$actualBranch (핀: $($repo.branch))"
+      }
+      if($mismatch.Count){
+        Warn ("$($repo.id) already exists but does NOT match the pin: " +
+              ($mismatch -join ' · ') +
+              " [ACTION] 폴더를 옮기고 setup 을 다시 돌리거나 workspace.json 의 핀을 고쳐라")
+      } else { Pass "$($repo.id) already exists (핀과 일치)" }
+    }
   }
   if (Is-ArchitectProfile) {
     $architect=Repo-Path (Find-Repo 'architect')
@@ -484,6 +502,19 @@ function Doctor-Workspace {
     foreach($relative in @('open-pencil','robo-analyzer\robo-data-analyzer','robo-analyzer\robo-data-catalog','robo-analyzer\robo-data-fabric','robo-analyzer\robo-data-frontend')){
       if(Test-Path(Join-Path $architect "$relative\.git")){Pass "Architect submodule $relative"}
       else{Fail "Architect submodule missing: $relative [ACTION] robo.cmd setup $Profile";$failed=$true}
+    }
+  }
+  # **핀은 적는 게 아니라 받아 보는 것이다.** workspace.json 에 url·branch 를 써 넣고
+  # 문법만 확인하면, 그 값으로 clone 이 되는지는 아무도 안 본다. 2026-09-18 에
+  # `ontological` 핀의 url 이 상류를 가리키는데 그 브랜치는 fork 에만 있었고,
+  # 증상은 `setup` 이 아니라 `release` 중간의 "파일이 없다" 로 나타났다.
+  foreach($repo in Repositories){
+    $hit=(git ls-remote --heads $repo.url $repo.branch 2>$null)
+    if($hit){Pass "$($repo.id) pin reachable: $($repo.branch)"}
+    else{
+      Fail ("$($repo.id) pin NOT reachable: $($repo.branch) at $($repo.url) " +
+            "[ACTION] workspace.json 의 url·branch 를 고치거나 그 브랜치를 올려라")
+      $failed=$true
     }
   }
   $neo4jConfigErrors=@(Get-WorkspaceNeo4jConfigurationErrors)
