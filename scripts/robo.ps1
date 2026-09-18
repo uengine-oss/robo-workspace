@@ -111,6 +111,21 @@ function Get-ReleaseEnvironmentContract {
   return $contract
 }
 
+function Get-ReleaseAuthPosture([hashtable]$Values) {
+  # 채널·인증 자세를 **한 곳에서** 정한다. 관문과 매니페스트가 따로 계산하면
+  # 어긋나고, 어긋나면 "관문은 통과했는데 매니페스트는 꺼짐" 같은 상태가 된다.
+  $channel=([string]$Values['ROBO_RELEASE_CHANNEL']).Trim().ToLowerInvariant()
+  if([String]::IsNullOrWhiteSpace($channel)){$channel='delivery'}
+  $provider=([string]$Values['AUTH_PROVIDER']).Trim().ToLowerInvariant()
+  if([String]::IsNullOrWhiteSpace($provider)){$provider='none'}
+  return [ordered]@{
+    channel      = $channel
+    authEnforced = ([string]$Values['AUTH_ENFORCE']).Trim().ToLowerInvariant() -in @('1','true','yes','on')
+    authProvider = $provider
+    providerIsNone = $provider -in @('none','off','disabled')
+  }
+}
+
 function Get-ReleaseEnvironmentConfigurationErrors([string]$Path=$WorkspaceEnvPath) {
   if(-not(Test-Path -LiteralPath $Path)){return @("Workspace environment file missing: $Path")}
   $values=Read-EnvironmentFile $Path
@@ -146,6 +161,42 @@ function Get-ReleaseEnvironmentConfigurationErrors([string]$Path=$WorkspaceEnvPa
       }
     }
   }
+  # 인증은 **납품 요구사항이다.** 끈 설치본이 조용히 나가서는 안 된다.
+  #
+  # 기본 꺼짐은 과도기 결정이었다. 그 커밋(robo-architect c369fb0, 2026-09-08)이
+  # 이유를 적어 뒀다: "프런트에 로그인 화면이 붙기 전에 켜면 화면이 통째로 막힌다".
+  # 로그인 화면은 **같은 날 붙었다**(deac617 `LoginView.vue`). 근거가 끝났는데
+  # 기본값만 남아 있었고, 그래서 인증 없는 설치본이 만들어질 수 있었다.
+  #
+  # 다만 끄는 길을 아예 없애면 안 된다 — SWP SSO 는 사내망에서만 응답하므로,
+  # 인증을 켠 설치본으로는 사내망 밖에서 화면을 밟을 수 없다. 그래서
+  # **길은 두고 이름을 붙인다.** 문제는 끌 수 있다는 것이 아니라, 이름 없는
+  # 예외가 납품으로 새는 것이었다.
+  #
+  #   ROBO_RELEASE_CHANNEL=internal-test   인증 꺼짐 허용 (경고 + 매니페스트에 기록)
+  #   (비었거나 다른 값)                   납품 빌드 — 인증이 켜져 있어야 한다
+  $posture = Get-ReleaseAuthPosture $values
+  $channel = [string]$posture.channel
+  $authOn = [bool]$posture.authEnforced
+  $providerIsNone = [bool]$posture.providerIsNone
+  if($channel -eq 'internal-test'){
+    if(-not $authOn){
+      Warn ('ROBO_RELEASE_CHANNEL=internal-test — AUTH_ENFORCE 가 꺼진 설치본을 만든다. ' +
+            '납품에 쓰지 않는다. 매니페스트의 releaseChannel 로 남는다')
+    }
+  } else {
+    if(-not $authOn){
+      $errors+=("AUTH_ENFORCE must be on for a delivery release: " +
+                "인증 없는 설치본은 납품할 수 없다. 내부 시험 빌드라면 " +
+                "ROBO_RELEASE_CHANNEL=internal-test 를 명시하라")
+    }
+    if($authOn -and $providerIsNone){
+      $errors+=("AUTH_PROVIDER must not be none for a delivery release: " +
+                "AUTH_ENFORCE 만 켜면 세션을 얻을 길이 없다(swp · 별칭 posco). " +
+                "내부 시험 빌드라면 ROBO_RELEASE_CHANNEL=internal-test 를 명시하라")
+    }
+  }
+
   # AUTH_ 는 평평한 `required` 로 다 표현할 수 없다 — **켰을 때만** 필요한 값이 있다.
   #
   # AUTH_ENFORCE=true 인데 AUTH_JWT_SECRET 이 비면 앱이 죽지 않는다. 임시 비밀로
@@ -153,8 +204,7 @@ function Get-ReleaseEnvironmentConfigurationErrors([string]$Path=$WorkspaceEnvPa
   # 열 때마다 모든 세션이 끊기고**, AUTH_ROLE_SECRET 을 안 채운 경우 role 비밀번호가
   # 이 값에서 유도되므로 **graph 연결까지 함께 죽는다.** 증상은 기동이 아니라
   # "어제는 됐는데 오늘 로그인이 안 된다" 로 나온다.
-  $authEnforce=([string]$values['AUTH_ENFORCE']).Trim().ToLowerInvariant()
-  if($authEnforce -in @('1','true','yes','on')){
+  if($authOn){
     if([String]::IsNullOrWhiteSpace([string]$values['AUTH_JWT_SECRET'])){
       $errors+=("AUTH_ENFORCE is on but AUTH_JWT_SECRET is empty: " +
                 "토큰이 임시 비밀로 발급되어 재기동마다 세션이 끊긴다")
@@ -818,6 +868,8 @@ function Build-DesktopRelease {
     throw "release.manifest_template_missing: $templatePath"
   }
   $templateProbe = Get-Content -Raw -Encoding UTF8 $templatePath | ConvertFrom-Json
+  Assert-ManifestTemplateCovers $templateProbe '(최상위)' `
+    @('releaseId','releaseChannel','authEnforced','authProvider','imageArchiveSha256') $templatePath
   Assert-ManifestTemplateCovers $templateProbe.source   'source'   @($commits.Keys) $templatePath
   Assert-ManifestTemplateCovers $templateProbe.images   'images'   @($images.Keys)  $templatePath
   Assert-ManifestTemplateCovers $templateProbe.imageIds 'imageIds' @($images.Keys)  $templatePath
@@ -883,6 +935,14 @@ function Build-DesktopRelease {
   $manifest = Get-Content -Raw -Encoding UTF8 $templatePath | ConvertFrom-Json
   $manifest.releaseId = $releaseId
   $manifest.imageArchiveSha256 = $archiveSha
+  # **인증 자세를 설치본이 스스로 밝히게 한다.** 인증 꺼진 설치본이 만들어질 수
+  # 있는 것 자체보다, 그것이 납품본과 구별되지 않는 것이 문제였다.
+  $posture = Get-ReleaseAuthPosture (Read-EnvironmentFile $WorkspaceEnvPath)
+  $manifest.releaseChannel = [string]$posture.channel
+  $manifest.authEnforced = [bool]$posture.authEnforced
+  $manifest.authProvider = [string]$posture.authProvider
+  Info ("release channel: $($posture.channel) · auth enforced: " +
+        "$($posture.authEnforced) · provider: $($posture.authProvider)")
   foreach ($name in $images.Keys) {
     $manifest.images.$name = $images[$name]
     $manifest.imageIds.$name = Get-DockerImageId $images[$name]
