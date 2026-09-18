@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-  [Parameter(Position=0)][ValidateSet('help','setup','sync','doctor','up','restart','status','logs','down','build','release')][string]$Command = 'help',
+  [Parameter(Position=0)][ValidateSet('help','setup','sync','doctor','env','up','restart','status','logs','down','build','release')][string]$Command = 'help',
   [Parameter(Position=1)][ValidateSet('analyzer','architect-web','architect-electron','all')][string]$Profile = 'analyzer',
   [Parameter(Position=2)][ValidateSet('unpacked','installer')][string]$Variant = 'unpacked',
   [Alias('Service')][string]$ServiceId,
@@ -640,6 +640,27 @@ function Get-DockerImageId([string]$Tag) {
   return $imageId
 }
 
+<#
+.SYNOPSIS
+  포장될 환경 값만 검사한다 — `release` 를 돌리기 전에.
+
+.DESCRIPTION
+  `doctor` 는 **개발 프로필**을 본다: 도구가 깔렸는지, 저장소가 있는지, Neo4j 가
+  7687 에 떠 있는지. 설치본 릴리스에는 그중 마지막이 해당 없고(설치본은 자기
+  컨테이너를 띄운다), 반대로 **"포장되는 값이 맞는가"** 는 `doctor` 가 보지 않는다.
+
+  그 검사는 지금까지 `release` 안에만 있었다. 즉 **두 시간 걸리는 빌드를 시작한 뒤에야**
+  환경 값이 틀린 것을 알았다. 이 명령은 그것만 따로 본다.
+
+      robo.cmd env architect-electron
+#>
+function Check-ReleaseEnvironment {
+  $errors=@(Get-ReleaseEnvironmentConfigurationErrors)
+  foreach($message in $errors){Fail $message}
+  if($errors.Count){throw 'release environment is not ready'}
+  Pass 'packaged runtime environment is ready'
+}
+
 function Build-DesktopRelease {
   if ($Profile -ne 'architect-electron') {
     throw 'release is supported only for architect-electron'
@@ -1152,6 +1173,7 @@ if($env:ROBO_WORKSPACE_TEST_MODE-ne'1'){
     'logs'{Show-Logs}
     'down'{if($ServiceId){Stop-SelectedService}elseif($Profile-eq'all'){Stop-AllProfiles}else{Stop-Owned;if($ForcePorts){Stop-ProfilePortListeners}}}
     'build'{Build-Desktop}
+    'env'{Check-ReleaseEnvironment}
     'release'{Build-DesktopRelease}
   }
 }
