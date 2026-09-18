@@ -6,7 +6,8 @@
     "LLM_PROVIDER",
     "LLM_MODEL",
     "OPENAI_BASE_URL",
-    "OPENAI_API_KEY"
+    "OPENAI_API_KEY",
+    "AUTH_ENFORCE"
   ],
   "credentialNames": [
     "ROBO_LLM_API_KEY",
@@ -18,7 +19,10 @@
     "ANTHROPIC_AUTH_TOKEN",
     "GOOGLE_API_KEY",
     "PARSER_REPAIR_AGENT_API_KEY",
-    "PDF2BPMN_FACADE_KEY"
+    "PDF2BPMN_FACADE_KEY",
+    "AUTH_JWT_SECRET",
+    "AUTH_ROLE_SECRET",
+    "AUTH_DEV_LOGIN_PASSWORD"
   ],
   "placeholderValues": [
     "notused",
@@ -122,6 +126,7 @@
     "architect": {
       "file": "architect/app/.env",
       "prefixes": [
+        "AUTH_",
         "LLM_",
         "OPENAI_",
         "ANTHROPIC_",

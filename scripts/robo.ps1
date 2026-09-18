@@ -146,6 +146,31 @@ function Get-ReleaseEnvironmentConfigurationErrors([string]$Path=$WorkspaceEnvPa
       }
     }
   }
+  # AUTH_ 는 평평한 `required` 로 다 표현할 수 없다 — **켰을 때만** 필요한 값이 있다.
+  #
+  # AUTH_ENFORCE=true 인데 AUTH_JWT_SECRET 이 비면 앱이 죽지 않는다. 임시 비밀로
+  # 토큰을 발급하고 경고만 남긴다(`api/features/auth/tokens.py`). 그러면 **앱을 다시
+  # 열 때마다 모든 세션이 끊기고**, AUTH_ROLE_SECRET 을 안 채운 경우 role 비밀번호가
+  # 이 값에서 유도되므로 **graph 연결까지 함께 죽는다.** 증상은 기동이 아니라
+  # "어제는 됐는데 오늘 로그인이 안 된다" 로 나온다.
+  $authEnforce=([string]$values['AUTH_ENFORCE']).Trim().ToLowerInvariant()
+  if($authEnforce -in @('1','true','yes','on')){
+    if([String]::IsNullOrWhiteSpace([string]$values['AUTH_JWT_SECRET'])){
+      $errors+=("AUTH_ENFORCE is on but AUTH_JWT_SECRET is empty: " +
+                "토큰이 임시 비밀로 발급되어 재기동마다 세션이 끊긴다")
+    }
+  }
+
+  # 개발용 우회 로그인은 **납품 자산에 실려 나가면 안 된다.** id/password 로
+  # 무조건 들어올 수 있는 문이고, 기본이 `test`/`test` 다.
+  # 설치본에서 시험하려면 설치된 `architect/app/.env` 를 고친다 — 릴리스에 굽지 않는다.
+  $devLogin=([string]$values['AUTH_DEV_LOGIN_ENABLED']).Trim().ToLowerInvariant()
+  if($devLogin -in @('1','true','yes','on')){
+    $errors+=("AUTH_DEV_LOGIN_ENABLED must not be packaged: " +
+              "개발용 우회 로그인이 납품 자산에 실린다. 설치 후 " +
+              "architect/app/.env 에서만 켠다")
+  }
+
   foreach($entry in @($contract.forbiddenValuePatterns)){
     $pattern=[string]$entry.pattern
     if([String]::IsNullOrWhiteSpace($pattern)){continue}
