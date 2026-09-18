@@ -1,4 +1,4 @@
-$ErrorActionPreference='Stop'
+﻿$ErrorActionPreference='Stop'
 $WorkspaceRoot=(Resolve-Path(Join-Path $PSScriptRoot '..')).Path
 $names=@(
   'ROBO_WORKSPACE_TEST_MODE',

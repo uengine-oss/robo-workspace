@@ -1,0 +1,11 @@
+# Windows 전용 실행 파일은 어느 플랫폼에서 받아도 CRLF 로 둔다.
+# 저장소에는 LF 로 담기고 checkout 에서 CRLF 가 된다.
+*.ps1 text eol=crlf
+*.cmd text eol=crlf
+*.bat text eol=crlf
+
+# 주의: BOM 은 여기서 못 만든다. 파일 내용이라 git 이 넣어 주지 않는다.
+# PowerShell 5.1 은 BOM 없는 .ps1 을 ANSI 코드페이지로 읽어 한글을 깨뜨리므로,
+# 한글이 든 .ps1 은 BOM 을 포함해 저장한다 (scripts/robo.ps1,
+# tests/environment-contract.ps1). 확인:
+#   python3 -c "print(open('scripts/robo.ps1','rb').read()[:3]==b'\xef\xbb\xbf')"

@@ -1,4 +1,4 @@
-[CmdletBinding()]
+﻿[CmdletBinding()]
 param(
   [Parameter(Position=0)][ValidateSet('help','setup','sync','doctor','env','up','restart','status','logs','down','build','release')][string]$Command = 'help',
   [Parameter(Position=1)][ValidateSet('analyzer','architect-web','architect-electron','all')][string]$Profile = 'analyzer',
@@ -12,6 +12,20 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+
+# open-pencil 의 LFS 원격은 .lfsconfig 에 자격증명이 박힌 R2 프록시다. 그 키는
+# 인증에 실패한다고 보고됐고(윈도우 실측), smudge 가 켜져 있으면
+# `git submodule update` 가 거기서 멈춘다 — 저장소 8개를 다 받아 놓고서.
+#
+# LFS 로 잡힌 파일은 open-pencil/tests/fixtures 의 5개(.fig 3 · .ttf 2)뿐이고
+# 릴리스는 그것을 읽지 않는다. .gitattributes 3번째 줄이 canvaskit 의 *.wasm 도
+# 잡지만 그 경로에 추적되는 파일은 없다 — 확인:
+#   git -C <architect>/open-pencil ls-files '*.wasm'   → 0건
+# 그래서 포인터 파일만 받아도 릴리스는 온전하다.
+#
+# 근본 수정(키 폐기 + 히스토리 정리)은 open-pencil 소유자 몫이다. 넘긴 항목 T089.
+if (-not $env:GIT_LFS_SKIP_SMUDGE) { $env:GIT_LFS_SKIP_SMUDGE = '1' }
+
 $WorkspaceRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $ProjectRoot = if ($env:ROBO_PROJECT_ROOT) { $env:ROBO_PROJECT_ROOT } else { Join-Path (Split-Path $WorkspaceRoot -Parent) 'project' }
 $RuntimeRoot = if($env:ROBO_WORKSPACE_RUNTIME){[IO.Path]::GetFullPath($env:ROBO_WORKSPACE_RUNTIME)}else{Join-Path $WorkspaceRoot '.robo'}
@@ -771,7 +785,13 @@ function Build-DesktopRelease {
   Build-ReleaseImage 'gateway' $images.gateway $sources.gateway $commits.gateway
 
   Info 'building bundled Architect API runtime'
-  Invoke-Checked 'powershell.exe' @(
+  # 지금 이 스크립트를 돌리는 호스트를 그대로 물려준다. 'powershell.exe' 를
+  # 박아 두면, robo.cmd 가 pwsh 7 을 골랐어도 릴리스 중간의 이 한 단계만
+  # 5.1 로 떨어진다 — 갈라진 지점이 로그에 안 남는다.
+  $psHostPath = (Get-Process -Id $PID).Path
+  if (-not $psHostPath) { $psHostPath = 'powershell.exe' }
+  Info "packaged runtime host: $psHostPath"
+  Invoke-Checked $psHostPath @(
     '-NoProfile',
     '-ExecutionPolicy', 'Bypass',
     '-File', (Join-Path $sources.architect 'scripts\build-packaged-runtime.ps1'),
