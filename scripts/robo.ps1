@@ -711,6 +711,21 @@ function Check-ReleaseEnvironment {
   Pass 'packaged runtime environment is ready'
 }
 
+function Assert-ManifestTemplateCovers(
+  [object]$Node, [string]$NodeName, [string[]]$Required, [string]$TemplatePath
+) {
+  if ($null -eq $Node) {
+    throw "release.manifest_template_missing_section: $TemplatePath 에 '$NodeName' 이 없다"
+  }
+  $have = @($Node.PSObject.Properties.Name)
+  $missing = @($Required | Where-Object { $have -notcontains $_ })
+  if ($missing.Count) {
+    throw ("release.manifest_template_missing_keys: $TemplatePath 의 '$NodeName' 에 " +
+           "$($missing -join ', ') 이(가) 없다 — 릴리스가 채우려는 키다. " +
+           "템플릿에 그 키를 더하라(값은 자리표 문자열이면 된다).")
+  }
+}
+
 function Build-DesktopRelease {
   if ($Profile -ne 'architect-electron') {
     throw 'release is supported only for architect-electron'
@@ -760,6 +775,29 @@ function Build-DesktopRelease {
   }
 
   Info "release id: $releaseId"
+
+  # 매니페스트 템플릿이 **릴리스가 채우려는 키를 다 갖고 있는지 여기서 본다.**
+  # 아래(§아카이브 단계)의 쓰기는 `$manifest.source.$name = ...` 인데,
+  # `ConvertFrom-Json` 이 낸 PSCustomObject 는 **없는 속성에 대입하면 예외**다.
+  # 그 자리는 이미지 8종을 다 구운 뒤라서, 한 줄 불일치의 대가가 빌드 한 판(1~2시간)이다.
+  #
+  # 2026-09-18 Windows 실측으로 정확히 그 일이 났다. `Get-ReleaseSources` 에
+  # `ontological` 을 더할 때 `runtime-manifest.template.json` 의 `source` 를 같이
+  # 안 고쳤고, 오류 문구는 `"ontological" 속성을 찾을 수 없습니다` 뿐이었다 —
+  # **어느 파일을 고쳐야 하는지 말해 주지 않는다.**
+  #
+  # 그래서 (가) 빌드 앞으로 옮기고 (나) 어느 템플릿의 어느 절에 무슨 키가 없는지
+  # 이름으로 말한다. 서비스를 하나 더할 때 이 검사가 먼저 문다.
+  $templatePath = Join-Path $sources.architect 'desktop\runtime\runtime-manifest.template.json'
+  if (-not (Test-Path -LiteralPath $templatePath)) {
+    throw "release.manifest_template_missing: $templatePath"
+  }
+  $templateProbe = Get-Content -Raw -Encoding UTF8 $templatePath | ConvertFrom-Json
+  Assert-ManifestTemplateCovers $templateProbe.source   'source'   @($commits.Keys) $templatePath
+  Assert-ManifestTemplateCovers $templateProbe.images   'images'   @($images.Keys)  $templatePath
+  Assert-ManifestTemplateCovers $templateProbe.imageIds 'imageIds' @($images.Keys)  $templatePath
+  Pass 'manifest template covers every key the release writes'
+
   Invoke-Checked 'docker.exe' @('pull', $images.mindsdb) $WorkspaceRoot
   # amd64 only upstream; the runtime compose declares the same platform.
   Invoke-Checked 'docker.exe' @('pull', '--platform', 'linux/amd64', $images.pdf2bpmn) $WorkspaceRoot
@@ -816,7 +854,7 @@ function Build-DesktopRelease {
   Invoke-Checked 'docker.exe' (@('save', '--output', $imageArchive) + $imageList) $WorkspaceRoot
   $archiveSha = (Get-FileHash -Algorithm SHA256 -LiteralPath $imageArchive).Hash.ToLowerInvariant()
 
-  $templatePath = Join-Path $sources.architect 'desktop\runtime\runtime-manifest.template.json'
+  # $templatePath 는 위 게이트에서 이미 정해졌다 — 두 곳에서 정하지 않는다.
   $manifest = Get-Content -Raw -Encoding UTF8 $templatePath | ConvertFrom-Json
   $manifest.releaseId = $releaseId
   $manifest.imageArchiveSha256 = $archiveSha
@@ -836,6 +874,7 @@ function Build-DesktopRelease {
   if ($manifest.graphs.design -eq $manifest.graphs.analysis) {
     throw "release.manifest_graphs_same: 설계와 분석 graph 가 같다 ($($manifest.graphs.design))"
   }
+  Assert-ManifestTemplateCovers $manifest.environment 'environment' @($environmentSnapshots.Keys) $templatePath
   foreach($name in $environmentSnapshots.Keys){
     $manifest.environment.$name.file=$environmentSnapshots[$name].file
     $manifest.environment.$name.sha256=$environmentSnapshots[$name].sha256
