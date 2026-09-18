@@ -577,6 +577,11 @@ function Get-ReleaseSources {
     # 설치본의 graph 저장소. **개발 환경의 `ontological-dev` 컨테이너와 다른 것이다** —
     # 그쪽은 소스를 마운트해 컨테이너 안에서 빌드하고 엔트리포인트가 `sleep infinity` 라
     # 설치본에 못 쓴다. 여기서는 `docker/Dockerfile.runtime` 의 두 타깃을 굽는다.
+    #
+    # ⚠ 지금 이 저장소는 **fork**(`seongwonyang/ontological-db`)를 가리킨다.
+    # `fix/neo4j-bolt-compat` 이 상류(`uengine-oss`)에 없고 푸시 권한도 없다(403 실측).
+    # 상류 PR #2 가 병합되면 `workspace.json` 의 url 을 상류로 돌린다 — 납품 자산이
+    # 개인 fork 에 의존하는 상태로 두지 않는다.
     ontological = Repo-Path (Find-Repo 'ontological')
   }
 }
@@ -717,6 +722,15 @@ function Build-DesktopRelease {
   # 없고, 묶으면 공식 postgres 엔트리포인트를 우리가 다시 만들어야 하며, 무엇보다
   # **사람이 Bolt 를 띄우게 된다**(엔진을 다시 깔고 Bolt 를 안 띄워 psql 은 되는데 앱만
   # 죽는 상태를 이 저장소가 반복해 밟았다).
+  # **파일이 있는지 먼저 본다.** `docker build --file <없는 경로>` 는 실패하지만,
+  # 그 메시지가 "핀한 브랜치에 그 파일이 없다" 라고 말해 주지 않는다. 2026-09-18 에
+  # 정확히 그 상태였다 — 브랜치는 fork 에만 있었고, 런타임 Dockerfile 은 어느
+  # 브랜치에도 커밋돼 있지 않았다.
+  $runtimeDockerfile = Join-Path $sources.ontological 'docker\Dockerfile.runtime'
+  if (-not (Test-Path -LiteralPath $runtimeDockerfile)) {
+    throw ("release.missing_ontological_runtime: $runtimeDockerfile " +
+           "— workspace.json 의 ontological 핀(url·branch)이 이 파일을 담고 있는지 확인하라")
+  }
   Build-ReleaseTarget 'graph-db' $images.graphDb $sources.ontological $commits.ontological 'runtime-db'
   Build-ReleaseTarget 'graph-bolt' $images.graphBolt $sources.ontological $commits.ontological 'runtime-bolt'
   Build-ReleaseImage 'analyzer' $images.analyzer $sources.analyzer $commits.analyzer

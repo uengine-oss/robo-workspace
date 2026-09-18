@@ -6,7 +6,7 @@
     {"id":"frontend","path":"robo-data-frontend","url":"https://github.com/uengine-oss/robo-data-frontend.git","branch":"main","profiles":["analyzer"]},
     {"id":"fabric","path":"robo-data-fabric","url":"https://github.com/uengine-oss/robo-data-fabric.git","branch":"main","profiles":["analyzer"]},
     {"id":"catalog","path":"robo-data-catalog","url":"https://github.com/uengine-oss/robo-data-catalog.git","branch":"main","profiles":["analyzer"]},
-    {"id":"ontological","path":"ontological-db","url":"https://github.com/uengine-oss/ontological-db.git","branch":"fix/neo4j-bolt-compat","profiles":["architect-electron"]},
+    {"id":"ontological","path":"ontological-db","url":"https://github.com/seongwonyang/ontological-db.git","branch":"fix/neo4j-bolt-compat","profiles":["architect-electron"]},
     {"id":"architect","path":"robo-architect","url":"https://github.com/uengine-oss/robo-architect.git","branch":"enterprise-custom-p","profiles":["architect-web","architect-electron"]}
   ],
   "services": [
