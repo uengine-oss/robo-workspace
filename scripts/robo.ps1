@@ -1000,13 +1000,38 @@ function Build-DesktopRelease {
   $releaseInstaller = Join-Path $releaseRoot "Robo-Architect-Setup-$releaseId.exe"
   Copy-Item -LiteralPath $installer -Destination $releaseInstaller -Force
   Copy-Item -LiteralPath $manifestPath -Destination (Join-Path $releaseRoot 'runtime-manifest.json') -Force
+
+  # 이미지 tar 는 **설치 파일 옆에** 둔다. 안에 넣으면 NSIS 가 설치본을 못 만든다 —
+  # `makensis` 가 32비트라 주소공간이 2GB 남짓인데 tar 하나가 2.5GB 다
+  # (2026-09-23 실측: 페이로드 3.27GB 에서 `failed creating mmap of …nsis.7z`).
+  # 이미지를 줄여 넘길 수 있는 벽이 아니다 — analyzer 한 장이 2.1GB 다.
+  # 설치한 사람이 이 파일을 앱 데이터 폴더로 옮긴다(앱의 `resolveImageArchive`).
+  $stagedArchive = Join-Path $runtimeRoot 'robo-images.tar'
+  if (-not (Test-Path -LiteralPath $stagedArchive)) {
+    throw "release.image_archive_missing: $stagedArchive"
+  }
+  $releaseArchive = Join-Path $releaseRoot 'robo-images.tar'
+  Copy-Item -LiteralPath $stagedArchive -Destination $releaseArchive -Force
+
   $installerSha = (Get-FileHash -Algorithm SHA256 -LiteralPath $releaseInstaller).Hash.ToLowerInvariant()
-  "$installerSha  $(Split-Path $releaseInstaller -Leaf)" |
-    Set-Content -LiteralPath (Join-Path $releaseRoot 'SHA256SUMS') -Encoding ascii
+  $archiveSha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $releaseArchive).Hash.ToLowerInvariant()
+  # 매니페스트가 적어둔 값과 실제로 나가는 파일이 같은지 여기서 못박는다.
+  if ($archiveSha256 -ne $archiveSha) {
+    throw "release.image_archive_checksum_drift: manifest=$archiveSha copied=$archiveSha256"
+  }
+  @(
+    "$installerSha  $(Split-Path $releaseInstaller -Leaf)",
+    "$archiveSha256  robo-images.tar"
+  ) | Set-Content -LiteralPath (Join-Path $releaseRoot 'SHA256SUMS') -Encoding ascii
 
   Pass "release ready: $releaseRoot"
   Write-Host "Installer: $releaseInstaller"
   Write-Host "SHA256:    $installerSha"
+  Write-Host "Archive:   $releaseArchive"
+  Write-Host "SHA256:    $archiveSha256"
+  Write-Host ""
+  Write-Host "설치 후 robo-images.tar 을 아래로 옮긴다:"
+  Write-Host "  %APPDATA%obo-architect-desktopuntimeobo-images.tar"
 }
 
 function Prepare-ProfileArtifacts {
