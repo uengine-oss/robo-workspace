@@ -985,6 +985,23 @@ function Build-DesktopRelease {
     (New-Object Text.UTF8Encoding($false))
   )
 
+  # **스테이징 폴더는 비우고 쓰지 않는다 — 덮어쓰기만 한다.** 그래서 예전 실행이
+  # 남긴 것이나 사람이 손으로 만든 것이 그대로 납품 자산에 실린다. 2026-09-23 에
+  # 실제로 `compose.yml.bak`·`runtime-manifest.json.bak` 두 개가 설치본까지
+  # 따라갔다. 크기는 작지만 **고객에게 나가는 물건에 정체 모를 파일이 있는 것**이
+  # 문제다. 릴리스가 쓰는 것만 남기고 나머지는 여기서 걷어낸다.
+  # `.gitkeep` 은 레포가 추적하는 자리표시자다 — 지우면 빈 폴더가 사라진다.
+  $expectedRuntimeEntries = @(
+    '.gitkeep',
+    'architect', 'compose.yml', 'config', 'pdf2bpmn',
+    'robo-images.tar', 'runtime-manifest.json'
+  )
+  foreach ($entry in Get-ChildItem -LiteralPath $runtimeRoot -Force) {
+    if ($expectedRuntimeEntries -contains $entry.Name) { continue }
+    Warn "removing stray runtime artifact: $($entry.Name)"
+    Remove-Item -LiteralPath $entry.FullName -Recurse -Force
+  }
+
   Build-CoLocatedFrontend
   $desktop = Join-Path $sources.architect 'desktop'
   Invoke-Checked 'npm.cmd' @('run', 'build') $desktop
@@ -1031,7 +1048,10 @@ function Build-DesktopRelease {
   Write-Host "SHA256:    $archiveSha256"
   Write-Host ""
   Write-Host "설치 후 robo-images.tar 을 아래로 옮긴다:"
-  Write-Host "  %APPDATA%obo-architect-desktopuntimeobo-images.tar"
+  Write-Host "  %APPDATA%
+obo-architect-desktop
+untime
+obo-images.tar"
 }
 
 function Prepare-ProfileArtifacts {
