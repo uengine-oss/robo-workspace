@@ -846,7 +846,10 @@ function Build-DesktopRelease {
     # internet there. And its absence does NOT look like a failure: Architect
     # falls back and the screen still shows a BPM, so nobody notices that the
     # in-house service never ran.
-    pdf2bpmn = 'ghcr.io/uengine-oss/process-gpt-bpmn-extractor:8156f77'
+    # 2026-09-23: 8156f77(2026-03-17) 에서 4.5개월 뒤처져 있어 올린다. main 과 같은
+    # 다이제스트다. **오늘 본 증상(게이트웨이 빈약)의 원인은 아니었다** — 같은 문서로
+    # 신·구를 A/B 했더니 둘 다 gateway 1 을 냈다. 위생 목적의 최신화다.
+    pdf2bpmn = 'ghcr.io/uengine-oss/process-gpt-bpmn-extractor:c7992ce'
     # open-pencil 와이어프레임 렌더러. **없으면 와이어프레임이 조용히 빈다** —
     # `dev.sh` 는 Bun 으로 띄우지만 설치본에는 없었다. 부재가 오류로 안 보이고
     # (인제스천 경로가 `on_event=None`), 증상은 한참 뒤 Figma 싱크에서
