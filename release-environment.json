@@ -119,8 +119,7 @@
         "LLM_MODEL",
         "OPENAI_API_KEY",
         "OPENAI_BASE_URL",
-        "OPENAI_MODEL",
-        "FACADE_API_KEY"
+        "OPENAI_MODEL"
       ]
     },
     "architect": {

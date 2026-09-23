@@ -134,7 +134,10 @@ function Get-ReleaseEnvironmentConfigurationErrors([string]$Path=$WorkspaceEnvPa
   foreach($name in @($contract.required)){
     if(-not$values.ContainsKey([string]$name)-or
        [String]::IsNullOrWhiteSpace([string]$values[[string]$name])){
-      $errors+="Required packaged runtime value is missing or empty: $name"
+      # 문구를 "packaged" 라고 쓰면 안 된다 — 이 목록에는 비밀도 섞여 있고,
+      # 비밀은 이제 포장되지 않는다. 여기서 보는 것은 **릴리스를 굽는 기계의
+      # 설정**이다.
+      $errors+="Required workspace environment value is missing or empty: $name"
     }
   }
   foreach($name in @($contract.credentialNames)){
@@ -250,10 +253,25 @@ function Write-Utf8NoBom([string]$Path,[string]$Content) {
 }
 
 function Write-ReleaseEnvironmentSnapshots([string]$RuntimeRoot) {
+  # **비밀은 굽지 않는다.**
+  #
+  # 예전에는 이 함수가 `.env` 의 값을 있는 그대로 베껴 넣었다. `credentialNames`
+  # 가 있으니 걸러진다고 읽기 쉬운데, 그 목록은 **제외 목록이 아니라 검증 목록**
+  # 이었다 — "placeholder 말고 진짜 값을 넣어라" 는 뜻이라 오히려 진짜 키가
+  # 들어가도록 강제하고 있었다. 2026-09-23 설치본 감사에서 같은 OpenAI 키가
+  # 5개 파일 7개 이름으로 발견됐다(analyzer·catalog·fabric·pdf2bpmn·architect).
+  # 고객에게 나가는 물건에 개발사 모델 키가 실린다.
+  #
+  # 이제 `credentialNames` 에 있는 이름은 **파일에 쓰지 않고**, 대신 어떤 이름이
+  # 필요한지를 매니페스트에 적는다. 값은 설치한 사람이 환경변수로 넣고, compose
+  # 가 그걸 컨테이너로 넘긴다. 비밀이 빠졌으므로 환경 checksum 도 비밀 없는
+  # 파일에 대해 계산된다 — 지금까지는 그 해시가 키를 담은 파일의 해시였다.
   $errors=@(Get-ReleaseEnvironmentConfigurationErrors)
   if($errors.Count){throw($errors-join'; ')}
   $values=Read-EnvironmentFile $WorkspaceEnvPath
   $contract=Get-ReleaseEnvironmentContract
+  $credentialNames=@($contract.credentialNames)
+  $withheld=[ordered]@{}
   $snapshots=[ordered]@{}
   foreach($property in $contract.scopes.PSObject.Properties){
     $name=$property.Name
@@ -280,6 +298,12 @@ function Write-ReleaseEnvironmentSnapshots([string]$RuntimeRoot) {
         if($value.Contains("`r")-or$value.Contains("`n")){
           throw "Multiline environment value is not supported: $key"
         }
+        if($credentialNames-contains$key){
+          # 값이 있었다는 사실만 남긴다 — 그래야 설치본이 "무엇을 채워야
+          # 하는지" 를 이름으로 말할 수 있다. 값은 어디에도 적지 않는다.
+          if(-not[String]::IsNullOrWhiteSpace($value)){$withheld[$key]=$true}
+          continue
+        }
         $lines+="$key=$value"
       }
     }
@@ -290,7 +314,7 @@ function Write-ReleaseEnvironmentSnapshots([string]$RuntimeRoot) {
       sha256=(Get-FileHash -LiteralPath $target -Algorithm SHA256).Hash.ToLowerInvariant()
     }
   }
-  return $snapshots
+  return [ordered]@{ snapshots=$snapshots; withheld=@($withheld.Keys|Sort-Object) }
 }
 
 function Info([string]$Message) { Write-Host "[INFO] $Message" -ForegroundColor Cyan }
@@ -938,7 +962,13 @@ function Build-DesktopRelease {
   New-Item -ItemType Directory -Force -Path $facadeTarget | Out-Null
   Copy-Item -LiteralPath $facadeSource -Destination (Join-Path $facadeTarget 'facade.py') -Force
   Info 'writing service-scoped packaged environment'
-  $environmentSnapshots=Write-ReleaseEnvironmentSnapshots $runtimeRoot
+  $environmentResult=Write-ReleaseEnvironmentSnapshots $runtimeRoot
+  $environmentSnapshots=$environmentResult.snapshots
+  $withheldCredentials=@($environmentResult.withheld)
+  if($withheldCredentials.Count){
+    Info ("withholding credentials from the package (" +
+          "$($withheldCredentials.Count)): " + ($withheldCredentials-join', '))
+  }
   $imageList = @($images.Values)
   Info 'creating offline Docker image archive'
   Invoke-Checked 'docker.exe' (@('save', '--output', $imageArchive) + $imageList) $WorkspaceRoot
@@ -972,6 +1002,9 @@ function Build-DesktopRelease {
   if ($manifest.graphs.design -eq $manifest.graphs.analysis) {
     throw "release.manifest_graphs_same: 설계와 분석 graph 가 같다 ($($manifest.graphs.design))"
   }
+  # 설치본이 "무엇을 채워야 하는지" 를 스스로 말할 수 있게 이름만 싣는다.
+  # 값은 없다. 이름이 없으면 앱은 빈 키로 조용히 돌다가 엉뚱한 데서 죽는다.
+  $manifest|Add-Member -NotePropertyName credentialNames -NotePropertyValue $withheldCredentials -Force
   Assert-ManifestTemplateCovers $manifest.environment 'environment' @($environmentSnapshots.Keys) $templatePath
   foreach($name in $environmentSnapshots.Keys){
     $manifest.environment.$name.file=$environmentSnapshots[$name].file

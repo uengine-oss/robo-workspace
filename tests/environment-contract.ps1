@@ -55,10 +55,21 @@ try{
   if(@($releaseTemplateErrors|Where-Object{$_-match'developer-internal target'}).Count-ne 0){
     throw 'Committed release template still points at a developer-internal target'
   }
-  if($releaseTemplateErrors.Count-ne2-or
-     @($releaseTemplateErrors|Where-Object{$_-match'ROBO_LLM_API_KEY'}).Count-ne1-or
+  # **개수로 재지 않는다.** 예전에는 `.Count -ne 2` 였는데, 관문에 검사가
+  # 하나 늘자(18a8a99 의 AUTH_ENFORCE/AUTH_JWT_SECRET) 템플릿은 그대로인데
+  # 이 테스트만 빨개졌고 5일간 아무도 몰랐다. 개수는 "무엇이 틀렸나" 를
+  # 말해 주지 않는다 — 있어야 할 것이 있는지를 이름으로 본다.
+  if(@($releaseTemplateErrors|Where-Object{$_-match'ROBO_LLM_API_KEY'}).Count-ne1-or
      @($releaseTemplateErrors|Where-Object{$_-match'OPENAI_API_KEY'}).Count-ne1){
     throw 'Committed release template must require both LLM credentials'
+  }
+  # 템플릿은 자격증명을 비워 두는 것이 맞다. 다만 **값이 적혀 있으면** 안 된다 —
+  # 이 파일은 git 추적 대상이라 그대로 납품 자산에 실려 나간다.
+  $templateRaw=Get-Content -LiteralPath(Join-Path $WorkspaceRoot '.env.example')-Raw
+  foreach($name in @('OPENAI_API_KEY','ROBO_LLM_API_KEY','LLM_API_KEY','AUTH_ROLE_SECRET')){
+    if($templateRaw-match"(?m)^$name=.+$"){
+      throw "Committed release template carries a credential value: $name"
+    }
   }
   $releaseErrors=@(Get-ReleaseEnvironmentConfigurationErrors $releaseFixture)
   if($releaseErrors.Count){
@@ -81,7 +92,18 @@ try{
   }
   $originalWorkspaceEnvPath=$WorkspaceEnvPath
   $WorkspaceEnvPath=$releaseFixture
-  $snapshots=Write-ReleaseEnvironmentSnapshots $releaseEnvRoot
+  $releaseResult=Write-ReleaseEnvironmentSnapshots $releaseEnvRoot
+  $snapshots=$releaseResult.snapshots
+  $withheld=@($releaseResult.withheld)
+  # ── 비밀은 굽지 않는다 ──────────────────────────────────────────────────
+  # 2026-09-23 설치본 감사: 같은 OpenAI 키가 5개 파일 7개 이름으로 실려
+  # 있었다. `credentialNames` 가 제외 목록이 아니라 검증 목록이었기 때문이다.
+  # 그래서 여기서 재는 것은 "이름이 옮겨졌나" 가 아니라 **"값이 안 나갔나"** 다.
+  foreach($name in @('ROBO_LLM_API_KEY','LLM_API_KEY','OPENAI_API_KEY')){
+    if($withheld-notcontains$name){
+      throw "Release did not withhold a credential it should have: $name"
+    }
+  }
   foreach($scope in @('analyzer','catalog','fabric','parser','gateway','pdf2bpmn','architect')){
     if(-not$snapshots.Contains($scope)){throw "Release environment snapshot missing scope: $scope"}
     $snapshotFile=Join-Path $releaseEnvRoot $snapshots[$scope].file
@@ -93,9 +115,14 @@ try{
   # **여기가 고정하는 것은 "어느 모델인가" 가 아니라 "scope 가 옮겨지는가" 다.**
   # 예전에는 개발사 사내 GPU 설정 이름을 기대값으로 박아 두어, 고객 값으로 바꾸면
   # 검사가 실패했다 — 검사가 내부 주소를 제자리에 못 박고 있었다.
-  if($analyzerEnv-notmatch'(?m)^ROBO_LLM_CONFIG=gpt54_mini_openai$'-or
-     $analyzerEnv-notmatch'(?m)^ROBO_LLM_API_KEY=fixture-internal-key$'){
+  if($analyzerEnv-notmatch'(?m)^ROBO_LLM_CONFIG=gpt54_mini_openai$'){
     throw 'Analyzer packaged environment does not carry its LLM config scope'
+  }
+  # 키는 **이름조차** 파일에 남지 않는다. 이름만 남기면 나중에 누가 값을
+  # 채워 넣기 좋은 빈 칸이 되고, 그 파일은 checksum 에 묶여 있어 채우는 순간
+  # 앱이 안 뜬다 — 도움이 아니라 함정이다.
+  if($analyzerEnv-match'(?m)^ROBO_LLM_API_KEY='){
+    throw 'Analyzer packaged environment still carries a credential'
   }
   if($analyzerEnv-match'(?m)^ROBO_NEO4J_(URI|USER|PASSWORD|DATABASE)='-or
      $analyzerEnv-match'(?m)^ROBO_DATA_DIR='){
@@ -124,6 +151,14 @@ try{
      $fabricEnv-notmatch'(?m)^DATA_FABRIC_QUERY_TIMEOUT_SECONDS=30$'){
     throw 'Fabric runtime environment mapping is incomplete'
   }
+  # 어느 파일에도 자격증명 **값**이 남지 않았는지 전수로 본다. 이름 하나를
+  # 놓쳐도 여기서 걸린다 — 위의 개별 검사는 아는 이름만 보지만 이건 값을 본다.
+  foreach($scope in @($snapshots.Keys)){
+    $packaged=Get-Content -LiteralPath(Join-Path $releaseEnvRoot $snapshots[$scope].file)-Raw
+    if($packaged-match'fixture-internal-key'){
+      throw "Packaged environment leaked a credential value: $scope"
+    }
+  }
   $WorkspaceEnvPath=$originalWorkspaceEnvPath
   $architectRoot=Repo-Path(Find-Repo 'architect')
   foreach($relative in @(
@@ -136,8 +171,17 @@ try{
     }
   }
   $manifestTemplate=Get-Content -LiteralPath(Join-Path $architectRoot 'desktop\runtime\runtime-manifest.template.json')-Raw|ConvertFrom-Json
-  if($manifestTemplate.schemaVersion-ne3){
-    throw 'Packaged runtime manifest must use the app-owned MindsDB schema'
+  # **숫자를 여기 박지 않는다.** 예전에는 `-ne 3` 이었는데 a785ebf 가 스키마를
+  # 4 로 올리면서 이 줄만 남아 테스트가 빨개졌다. 기대값의 임자는 앱이므로
+  # 앱의 상수를 읽어 맞춘다 — 그래야 다음에 올릴 때 여기가 안 막는다.
+  $dockerStackSource=Get-Content -LiteralPath(Join-Path $architectRoot 'desktop\src\main\docker-stack.ts')-Raw
+  if($dockerStackSource-notmatch'(?m)^const MANIFEST_SCHEMA_VERSION\s*=\s*(\d+)'){
+    throw 'Could not read MANIFEST_SCHEMA_VERSION from the app'
+  }
+  $expectedManifestSchema=[int]$Matches[1]
+  if($manifestTemplate.schemaVersion-ne$expectedManifestSchema){
+    throw ("Packaged runtime manifest schema disagrees with the app: " +
+           "template=$($manifestTemplate.schemaVersion) app=$expectedManifestSchema")
   }
   if($manifestTemplate.images.mindsdb-ne'mindsdb/mindsdb:v26.1.0'-or
      $manifestTemplate.imageIds.mindsdb-notmatch'^sha256:IMAGE_ID_MINDSDB$'){
