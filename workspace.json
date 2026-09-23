@@ -61,8 +61,8 @@
     {
       "id": "ontological",
       "path": "ontological-db",
-      "url": "https://github.com/seongwonyang/ontological-db.git",
-      "branch": "enterprise-electron",
+      "url": "https://github.com/uengine-oss/ontological-db-enterprise-custom.git",
+      "branch": "main",
       "profiles": [
         "architect-electron"
       ]

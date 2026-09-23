@@ -698,10 +698,14 @@ function Get-ReleaseSources {
     # 그쪽은 소스를 마운트해 컨테이너 안에서 빌드하고 엔트리포인트가 `sleep infinity` 라
     # 설치본에 못 쓴다. 여기서는 `docker/Dockerfile.runtime` 의 두 타깃을 굽는다.
     #
-    # ⚠ 지금 이 저장소는 **fork**(`seongwonyang/ontological-db`)를 가리킨다.
-    # `fix/neo4j-bolt-compat` 이 상류(`uengine-oss`)에 없고 푸시 권한도 없다(403 실측).
-    # 상류 PR #2 가 병합되면 `workspace.json` 의 url 을 상류로 돌린다 — 납품 자산이
-    # 개인 fork 에 의존하는 상태로 두지 않는다.
+    # 2026-09-23: **개인 fork 의존을 끝냈다.** 그전에는
+    # `seongwonyang/ontological-db` 의 `fix/neo4j-bolt-compat` 을 가리켰는데,
+    # 그 커밋들이 상류(`uengine-oss/ontological-db`)에 없고 푸시 권한도 없었다
+    # (403 실측). 상류 PR #2 는 3주간 리뷰 없이 닫혔다.
+    #
+    # 그래서 조직 소유의 별도 저장소 `uengine-oss/ontological-db-enterprise-custom`
+    # 로 옮기고 그 `main` 을 가리킨다. **하드 포크다** — 상류가 고치는 것이 자동으로
+    # 오지 않으므로, 필요하면 사람이 가져온다. 상류는 2026-08-24 이후 멈춰 있다.
     ontological = Repo-Path (Find-Repo 'ontological')
   }
 }
