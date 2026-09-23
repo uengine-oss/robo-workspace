@@ -4,7 +4,7 @@
       "id": "antlr",
       "path": "antlr-code-parser",
       "url": "https://github.com/uengine-oss/antlr-code-parser.git",
-      "branch": "feat/per-project-workspace",
+      "branch": "enterprise-electron",
       "profiles": [
         "analyzer",
         "architect-web",
@@ -62,7 +62,7 @@
       "id": "ontological",
       "path": "ontological-db",
       "url": "https://github.com/seongwonyang/ontological-db.git",
-      "branch": "fix/neo4j-bolt-compat",
+      "branch": "enterprise-electron",
       "profiles": [
         "architect-electron"
       ]
