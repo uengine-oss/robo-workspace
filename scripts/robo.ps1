@@ -847,6 +847,11 @@ function Build-DesktopRelease {
     # falls back and the screen still shows a BPM, so nobody notices that the
     # in-house service never ran.
     pdf2bpmn = 'ghcr.io/uengine-oss/process-gpt-bpmn-extractor:8156f77'
+    # open-pencil 와이어프레임 렌더러. **없으면 와이어프레임이 조용히 빈다** —
+    # `dev.sh` 는 Bun 으로 띄우지만 설치본에는 없었다. 부재가 오류로 안 보이고
+    # (인제스천 경로가 `on_event=None`), 증상은 한참 뒤 Figma 싱크에서
+    # "sceneGraph가 없습니다" 로 나온다. 2026-09-23 실측 0/27 → 29/29.
+    wireframe = "uengine/open-pencil:$releaseId"
   }
 
   Info "release id: $releaseId"
@@ -898,6 +903,7 @@ function Build-DesktopRelease {
   Build-ReleaseImage 'fabric' $images.fabric $sources.fabric $commits.fabric
   Build-ReleaseImage 'parser' $images.parser $sources.parser $commits.parser
   Build-ReleaseImage 'gateway' $images.gateway $sources.gateway $commits.gateway
+  Build-ReleaseImage 'wireframe' $images.wireframe $sources.openPencil $commits.openPencil
 
   Info 'building bundled Architect API runtime'
   # 지금 이 스크립트를 돌리는 호스트를 그대로 물려준다. 'powershell.exe' 를
