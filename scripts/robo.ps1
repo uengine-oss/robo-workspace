@@ -829,6 +829,38 @@ function Assert-ManifestTemplateCovers(
   }
 }
 
+function Assert-NoRunningDesktopApp([string]$ArchitectRoot) {
+  # electron-builder 는 `out\dist\win-unpacked` 를 **비우고** 다시 쓴다. 그 폴더의
+  # exe 가 돌고 있으면 Windows 가 파일 잠금을 풀지 않아 실패한다. 그런데 그 실패가
+  # 20분쯤 뒤에(의존성 설치·프런트 빌드·이미지 빌드를 다 끝내고) Go 스택 트레이스로
+  # 나온다 — 원인과 증상이 멀고, 사람이 매번 그 20분을 버린다.
+  #
+  #   ⨯ remove ...\win-unpacked\d3dcompiler_47.dll: Access is denied.
+  #
+  # 2026-09-28 에 실제로 겪었다. 앱은 유휴 상태였고 잠긴 폴더는 **이번 빌드가
+  # 어차피 덮어쓸 폴더**였다. 그래서 여기서 먼저 보고, 사람이 닫게 한다.
+  #
+  # 자동으로 죽이지 않는다 — 사용자가 인제스천이나 분석을 돌리는 중일 수 있고,
+  # 그건 이 스크립트가 알 수 없다.
+  $unpacked = Join-Path $ArchitectRoot 'desktop\out\dist\win-unpacked'
+  if (-not (Test-Path -LiteralPath $unpacked)) { return }
+  $prefix = (Resolve-Path -LiteralPath $unpacked).Path
+  $holders = @(
+    Get-Process -ErrorAction SilentlyContinue |
+      Where-Object {
+        $p = $null
+        try { $p = $_.Path } catch { }   # 접근 거부되는 프로세스가 있다. 건너뛴다.
+        $p -and $p.StartsWith($prefix, [StringComparison]::OrdinalIgnoreCase)
+      }
+  )
+  if (-not $holders.Count) { Pass 'no packaged app is holding the build output'; return }
+  $detail = ($holders | ForEach-Object { "$($_.ProcessName)(pid $($_.Id))" }) -join ', '
+  throw ("release.app_running: 지난 빌드의 앱이 돌고 있어 포장 폴더를 잠근다 — " +
+         "$detail. 앱을 닫고 다시 실행하라. " +
+         "컨테이너는 앱을 닫아도 그대로 떠 있다(다시 띄우면 이어받는다). " +
+         "폴더: $prefix")
+}
+
 function Build-DesktopRelease {
   if ($Profile -ne 'architect-electron') {
     throw 'release is supported only for architect-electron'
@@ -843,6 +875,7 @@ function Build-DesktopRelease {
   $sources = Get-ReleaseSources
   Assert-ReleaseSourceState $sources
   Invoke-Checked 'docker.exe' @('info', '--format', '{{.ServerVersion}}') $WorkspaceRoot
+  Assert-NoRunningDesktopApp $sources.architect
 
   $commits = [ordered]@{}
   foreach ($entry in $sources.GetEnumerator()) {
@@ -950,7 +983,24 @@ function Build-DesktopRelease {
     '-OutputRoot', $runtimeRoot
   ) $sources.architect
 
-  Copy-Item -LiteralPath (Join-Path $sources.architect 'desktop\runtime\compose.yml') -Destination (Join-Path $runtimeRoot 'compose.yml') -Force
+  # compose 파일 셋을 모두 싣는다. **하나만 실으면 조용히 안 된다** — 앱은
+  # `ROBO_GRAPH_MODE=central` 에서 overlay 를 찾다가 기동에서 멈추고, 중앙 DB 서버를
+  # 세울 파일도 고객 쪽에 없다(사내망에는 인터넷이 없어 받을 방법도 없다).
+  # 2026-09-28: 실제로 overlay 두 개가 빠진 채 릴리스가 한 번 나갔다.
+  #
+  #   compose.yml               기본. PC 안에 DB 까지 (bundled)
+  #   compose.remote-graph.yml  PC 쪽 overlay. DB 를 중앙으로 (central)
+  #   compose.central-db.yml    서버 쪽. DB 두 컨테이너만
+  #
+  # 이 목록은 `$expectedRuntimeEntries` 와 **함께** 고쳐야 한다. 거기 없는 이름은
+  # 아래 정리 단계가 다시 지운다.
+  foreach ($composeName in @('compose.yml', 'compose.remote-graph.yml', 'compose.central-db.yml')) {
+    $composeSource = Join-Path $sources.architect (Join-Path 'desktop\runtime' $composeName)
+    if (-not (Test-Path -LiteralPath $composeSource)) {
+      throw "release.missing_compose: $composeSource"
+    }
+    Copy-Item -LiteralPath $composeSource -Destination (Join-Path $runtimeRoot $composeName) -Force
+  }
   # The pdf2bpmn service mounts ./pdf2bpmn/facade.py. A bind mount whose source
   # is missing does not fail loudly -- Docker creates an empty DIRECTORY at that
   # path and uvicorn then starts with no app. Copy it, and fail here if absent.
@@ -1024,9 +1074,12 @@ function Build-DesktopRelease {
   # 따라갔다. 크기는 작지만 **고객에게 나가는 물건에 정체 모를 파일이 있는 것**이
   # 문제다. 릴리스가 쓰는 것만 남기고 나머지는 여기서 걷어낸다.
   # `.gitkeep` 은 레포가 추적하는 자리표시자다 — 지우면 빈 폴더가 사라진다.
+  # compose 세 파일은 위 복사 목록과 **같이** 유지한다 — 한쪽만 고치면 복사한 것을
+  # 여기서 다시 지우고, 그 결과는 조용하다(Warn 한 줄이 3,700줄 로그에 묻힌다).
   $expectedRuntimeEntries = @(
     '.gitkeep',
-    'architect', 'compose.yml', 'config', 'pdf2bpmn',
+    'architect', 'config', 'pdf2bpmn',
+    'compose.yml', 'compose.remote-graph.yml', 'compose.central-db.yml',
     'robo-images.tar', 'runtime-manifest.json'
   )
   foreach ($entry in Get-ChildItem -LiteralPath $runtimeRoot -Force) {
@@ -1034,6 +1087,17 @@ function Build-DesktopRelease {
     Warn "removing stray runtime artifact: $($entry.Name)"
     Remove-Item -LiteralPath $entry.FullName -Recurse -Force
   }
+
+  # **정리한 뒤에 확인한다.** 복사 목록과 위 허용 목록이 어긋나면 복사한 파일을
+  # 방금 지운 것이고, 그 결과는 `Warn` 한 줄로 3,700줄 로그에 묻힌다. 포장이
+  # 끝나기 전에 여기서 멈추는 편이 고객 PC 에서 기동이 멈추는 것보다 싸다.
+  foreach ($composeName in @('compose.yml', 'compose.remote-graph.yml', 'compose.central-db.yml')) {
+    if (-not (Test-Path -LiteralPath (Join-Path $runtimeRoot $composeName))) {
+      throw ("release.compose_not_staged: $composeName 이 포장 폴더에 없다. " +
+             '복사 목록과 $expectedRuntimeEntries 를 함께 확인하라')
+    }
+  }
+  Pass 'runtime carries all three compose files'
 
   Build-CoLocatedFrontend
   $desktop = Join-Path $sources.architect 'desktop'
