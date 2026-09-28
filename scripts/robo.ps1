@@ -1069,10 +1069,14 @@ function Build-DesktopRelease {
   if ($archiveSha256 -ne $archiveSha) {
     throw "release.image_archive_checksum_drift: manifest=$archiveSha copied=$archiveSha256"
   }
-  @(
+  # **LF 로 쓴다.** Set-Content 는 CRLF 를 넣는데, 그러면 표준 도구가 깨진다 —
+  # `sha256sum -c SHA256SUMS` 가 파일명 끝의 CR 까지 이름의 일부로 읽어
+  # "No such file" 을 낸다(실측). 고객이 제일 먼저 하는 일이 이 대조다.
+  $sumLines = @(
     "$installerSha  $(Split-Path $releaseInstaller -Leaf)",
     "$archiveSha256  robo-images.tar"
-  ) | Set-Content -LiteralPath (Join-Path $releaseRoot 'SHA256SUMS') -Encoding ascii
+  )
+  Write-Utf8NoBom (Join-Path $releaseRoot 'SHA256SUMS') (($sumLines -join "`n") + "`n")
 
   Pass "release ready: $releaseRoot"
   Write-Host "Installer: $releaseInstaller"
@@ -1081,10 +1085,11 @@ function Build-DesktopRelease {
   Write-Host "SHA256:    $archiveSha256"
   Write-Host ""
   Write-Host "설치 후 robo-images.tar 을 아래로 옮긴다:"
-  Write-Host "  %APPDATA%
-obo-architect-desktop
-untime
-obo-images.tar"
+  # 경로를 문자열에 박지 않는다. 예전에는 %APPDATA% 로 시작하는 한 줄이었는데
+  # 그 안의 backslash-r 이 줄바꿈으로 바뀌어(파일 오염) 안내가 네 줄로 쪼개졌고,
+  # 고객에게 존재하지 않는 자리를 알려 주고 있었다. Join-Path 는 그럴 수 없다.
+  $tarDest = Join-Path (Join-Path (Join-Path $env:APPDATA 'robo-architect-desktop') 'runtime') 'robo-images.tar'
+  Write-Host "  $tarDest"
 }
 
 function Prepare-ProfileArtifacts {
