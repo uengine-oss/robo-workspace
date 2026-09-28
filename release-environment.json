@@ -19,6 +19,8 @@
     "ANTHROPIC_AUTH_TOKEN",
     "GOOGLE_API_KEY",
     "PARSER_REPAIR_AGENT_API_KEY",
+    "EMBEDDING_API_KEY",
+    "SKILL_RUNNER_API_KEY",
     "PDF2BPMN_FACADE_KEY",
     "AUTH_JWT_SECRET",
     "AUTH_ROLE_SECRET",
@@ -139,11 +141,16 @@
         "WIREFRAME_",
         "HYBRID_",
         "PDF2BPMN_",
-        "SMART_LOGGER_"
+        "SMART_LOGGER_",
+        "SWP_",
+        "EMBEDDING_",
+        "SKILL_RUNNER_"
       ],
       "names": [
         "IS_SKIP_UI_PHASE",
-        "BC_SPEC_SPLIT_LINE_THRESHOLD"
+        "BC_SPEC_SPLIT_LINE_THRESHOLD",
+        "LIBREOFFICE_BIN",
+        "DOCX_NORMALIZE_TIMEOUT_S"
       ]
     }
   }
