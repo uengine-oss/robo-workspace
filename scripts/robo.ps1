@@ -882,7 +882,30 @@ function Build-DesktopRelease {
     $commits[$entry.Key] = Get-GitCommit $entry.Value
   }
   $desktopPackage = Get-Content -Raw -Encoding UTF8 (Join-Path $sources.architect 'desktop\package.json') | ConvertFrom-Json
-  $releaseId = '{0}-w{1}-a{2}' -f $desktopPackage.version, $commits.workspace.Substring(0, 8), $commits.architect.Substring(0, 8)
+  # **ID 는 내용이 바뀌면 같이 바뀌어야 한다.** 예전에는 workspace·architect 두
+  # 커밋만 담았다. 그래서 2026-09-28 에 `ontological-db` 만 고친 빌드가 **깨진 빌드와
+  # 똑같은 ID** 로 나왔다 — 같은 이름의 폴더를 덮어썼고, 파일 이름과 로그만으로는
+  # 두 물건을 구별할 수 없었다(내용은 달랐다: 설치 파일 sha256 21dfbd41 → cb2aef83).
+  #
+  # 그래서 나머지 소스(ontological·gateway·parser·analyzer·catalog·fabric·
+  # frontend·open-pencil)의 커밋을 한 덩어리로 요약해 뒤에 붙인다. 앞 두 자리는
+  # 사람이 읽는 용도로 그대로 두고, 세 번째가 "그 외 전부" 를 대표한다.
+  $otherCommits = @(
+    $commits.GetEnumerator() |
+      Where-Object { $_.Key -notin @('workspace', 'architect') } |
+      Sort-Object Key |
+      ForEach-Object { "$($_.Key)=$($_.Value)" }
+  ) -join "`n"
+  $sourceDigest = if ($otherCommits) {
+    $sha = [System.Security.Cryptography.SHA256]::Create()
+    try {
+      ([System.BitConverter]::ToString(
+        $sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($otherCommits))
+      ) -replace '-', '').ToLowerInvariant().Substring(0, 6)
+    } finally { $sha.Dispose() }
+  } else { '000000' }
+  $releaseId = '{0}-w{1}-a{2}-s{3}' -f $desktopPackage.version,
+    $commits.workspace.Substring(0, 8), $commits.architect.Substring(0, 8), $sourceDigest
   $runtimeRoot = Join-Path $sources.architect 'desktop\resources\runtime'
   $releaseRoot = Join-Path $WorkspaceRoot "_releases\$releaseId"
   $imageArchive = Join-Path $runtimeRoot 'robo-images.tar'
