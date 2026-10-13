@@ -69,6 +69,33 @@ gateway의 origin이다. `http://<DB_SERVER_PRIVATE_IP>:59020` 형태로 Archite
 ingestion·탐색·승격은 사용자 PC의 Electron/Docker에서 실행한다. 별도 중앙 실행 서버를
 운영하는 다른 배포에서만 수동으로 사용하는 선택 기능이다.
 
+## 개발판과 POSCO 납품판
+
+사내망 밖의 기능 안정화 기간에는 `internal-test` 개발판을 사용한다.
+
+```dotenv
+ROBO_RELEASE_CHANNEL=internal-test
+AUTH_PROVIDER=none
+AUTH_DEV_LOGIN_ENABLED=false
+ROBO_AUTHORITY_URL=
+```
+
+개발 로그인은 설치 자산에 굽지 않는다. 릴리스 검사가
+`AUTH_DEV_LOGIN_ENABLED=true` 패키징을 거절하며, 시험 PC의 사용자 설정에서만 켠다.
+기본 시험 계정은 `test/test`이고 loopback 요청만 허용한다. ingestion은 로컬 실행이다.
+
+기능 보정과 회귀 검증이 끝난 뒤에만 POSCO 납품판을 별도로 만든다.
+
+```dotenv
+ROBO_RELEASE_CHANNEL=delivery
+AUTH_PROVIDER=swp
+AUTH_DEV_LOGIN_ENABLED=false
+ROBO_AUTHORITY_URL=http://<DB_SERVER_PRIVATE_IP>:59020
+```
+
+납품판은 실제 사내망에서 SWP, DB 서버 사내 IP, 방화벽과 계정 승인 흐름을 검증해야 한다.
+개발판의 사용자 환경 override가 남아 있으면 Electron의 delivery posture 검사가 기동을 막아야 한다.
+
 ## 회귀 검증
 
 `tests/environment-catalog.ps1`은 실제 Analyzer, Catalog, Data Fabric, Parser,
