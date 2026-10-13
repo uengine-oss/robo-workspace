@@ -904,8 +904,14 @@ function Build-DesktopRelease {
       ) -replace '-', '').ToLowerInvariant().Substring(0, 6)
     } finally { $sha.Dispose() }
   } else { '000000' }
-  $releaseId = '{0}-w{1}-a{2}-s{3}' -f $desktopPackage.version,
-    $commits.workspace.Substring(0, 8), $commits.architect.Substring(0, 8), $sourceDigest
+  # 같은 소스라도 internal-test(none)와 delivery(swp)는 서로 다른 설치 자산이다.
+  # 인증 자세를 ID에 넣지 않으면 두 빌드가 같은 _releases 폴더와 설치 파일을 덮어쓴다.
+  $releasePosture = Get-ReleaseAuthPosture (Read-EnvironmentFile $WorkspaceEnvPath)
+  $channelTag = if ($releasePosture.channel -eq 'delivery') { 'del' } else { 'int' }
+  $providerTag = if ($releasePosture.authProvider -eq 'swp') { 'swp' } else { 'none' }
+  $releaseId = '{0}-w{1}-a{2}-s{3}-r{4}-{5}' -f $desktopPackage.version,
+    $commits.workspace.Substring(0, 8), $commits.architect.Substring(0, 8), $sourceDigest,
+    $channelTag, $providerTag
   $runtimeRoot = Join-Path $sources.architect 'desktop\resources\runtime'
   $releaseRoot = Join-Path $WorkspaceRoot "_releases\$releaseId"
   $imageArchive = Join-Path $runtimeRoot 'robo-images.tar'
@@ -1053,7 +1059,7 @@ function Build-DesktopRelease {
   $manifest.imageArchiveSha256 = $archiveSha
   # **인증 자세를 설치본이 스스로 밝히게 한다.** 인증 꺼진 설치본이 만들어질 수
   # 있는 것 자체보다, 그것이 납품본과 구별되지 않는 것이 문제였다.
-  $posture = Get-ReleaseAuthPosture (Read-EnvironmentFile $WorkspaceEnvPath)
+  $posture = $releasePosture
   $manifest.releaseChannel = [string]$posture.channel
   $manifest.authEnforced = [bool]$posture.authEnforced
   $manifest.authProvider = [string]$posture.authProvider

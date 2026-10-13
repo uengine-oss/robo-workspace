@@ -95,6 +95,8 @@ ROBO_AUTHORITY_URL=http://<DB_SERVER_PRIVATE_IP>:59020
 
 납품판은 실제 사내망에서 SWP, DB 서버 사내 IP, 방화벽과 계정 승인 흐름을 검증해야 한다.
 개발판의 사용자 환경 override가 남아 있으면 Electron의 delivery posture 검사가 기동을 막아야 한다.
+릴리스 ID 끝의 `-rint-none`과 `-rdel-swp`가 두 자산을 구분하므로 같은 소스 커밋으로
+개발판과 납품판을 연속 생성해도 `_releases` 폴더와 설치 파일을 서로 덮어쓰지 않는다.
 
 ## 회귀 검증
 
