@@ -24,7 +24,8 @@
     "PDF2BPMN_FACADE_KEY",
     "AUTH_JWT_SECRET",
     "AUTH_ROLE_SECRET",
-    "AUTH_DEV_LOGIN_PASSWORD"
+    "AUTH_DEV_LOGIN_PASSWORD",
+    "AUTH_DEV_LOGIN_ACCOUNTS"
   ],
   "placeholderValues": [
     "notused",
