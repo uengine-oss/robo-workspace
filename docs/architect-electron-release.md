@@ -32,7 +32,7 @@ robo.cmd release architect-electron
 2. Architect가 고정한 open-pencil 및 robo-analyzer submodule을 초기화합니다.
 3. 필요한 Node dependency를 준비합니다.
 4. Neo4j와 MindsDB image를 받고 Analyzer, Catalog, Data Fabric, Parser, Gateway
-   image를 source commit label과 release tag로 빌드합니다.
+   및 중앙 Authority image를 source commit label과 release tag로 빌드합니다.
 5. 모든 image를 offline Docker archive로 저장합니다.
 6. relocatable Windows CPython과 Architect FastAPI 소스를 묶습니다.
 7. Analyzer remote와 Architect frontend, Electron TypeScript를 빌드합니다.
@@ -43,9 +43,21 @@ robo.cmd release architect-electron
 ```text
 _releases/<release-id>/
   Robo-Architect-Setup-<release-id>.exe
+  robo-images.tar
   runtime-manifest.json
   SHA256SUMS
+  central-server/
+    compose.yml
+    central-authority.env.example
+    README.md
+    runtime-manifest.json
 ```
+
+`central-server`는 DB 서버용 묶음입니다. `central-authority.env.example`을
+`central-authority.env`로 복사한 뒤 제한 runtime DSN, 별도 project operator DSN,
+SWP 설정과 비밀을 서버에서 채웁니다. 완성된 환경 파일은 Git이나 배포 묶음에 다시
+넣지 않습니다. 같은 디렉터리의 compose는 graph DB, Bolt, Authority를 함께 감독하며
+Authority 이미지는 `robo-images.tar`에 포함됩니다.
 
 릴리스 명령은 dirty 저장소, 다른 branch와 submodule pointer 불일치를 거부합니다.
 manifest는 모든 source commit, Docker image ID, offline archive SHA-256과 서비스

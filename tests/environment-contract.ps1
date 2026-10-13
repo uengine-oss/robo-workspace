@@ -163,7 +163,11 @@ try{
   $architectRoot=Repo-Path(Find-Repo 'architect')
   foreach($relative in @(
     'desktop\runtime\compose.yml',
+    'desktop\runtime\compose.central-db.yml',
+    'desktop\runtime\central-authority.env.example',
+    'desktop\runtime\CENTRAL-SERVER.md',
     'desktop\runtime\runtime-manifest.template.json',
+    'docker\Dockerfile.authority',
     'scripts\build-packaged-runtime.ps1'
   )){
     if(-not(Test-Path(Join-Path $architectRoot $relative))){
@@ -186,6 +190,16 @@ try{
   if($manifestTemplate.images.mindsdb-ne'mindsdb/mindsdb:v26.1.0'-or
      $manifestTemplate.imageIds.mindsdb-notmatch'^sha256:IMAGE_ID_MINDSDB$'){
     throw 'Packaged runtime manifest must pin the app-owned MindsDB image'
+  }
+  if($manifestTemplate.images.authority-notmatch'^uengine/robo-authority:'-or
+     $manifestTemplate.imageIds.authority-notmatch'^sha256:IMAGE_ID_AUTHORITY$'){
+    throw 'Packaged runtime manifest must declare the central authority image'
+  }
+  $centralCompose=Get-Content -LiteralPath(Join-Path $architectRoot 'desktop\runtime\compose.central-db.yml')-Raw
+  if($centralCompose-notmatch'(?m)^  authority:$'-or
+     $centralCompose-notmatch'ROBO_IMAGE_AUTHORITY'-or
+     $centralCompose-notmatch'central-authority\.env'){
+    throw 'Central server compose must run the packaged authority image with a server-owned environment file'
   }
   foreach($scope in @('analyzer','catalog','fabric','parser','gateway','pdf2bpmn','architect')){
     if(-not$manifestTemplate.environment.$scope.file-or

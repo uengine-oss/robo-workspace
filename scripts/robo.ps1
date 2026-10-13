@@ -785,6 +785,28 @@ function Build-ReleaseImage(
   ) $WorkspaceRoot
 }
 
+function Build-ReleaseDockerfile(
+  [string]$Name,
+  [string]$Tag,
+  [string]$Context,
+  [string]$Revision,
+  [string]$Dockerfile
+) {
+  $dockerfilePath = Join-Path $Context $Dockerfile
+  if (-not (Test-Path -LiteralPath $dockerfilePath)) {
+    throw "release Dockerfile missing: $dockerfilePath"
+  }
+  Info "building release image: $Name ($Dockerfile)"
+  Invoke-Checked 'docker.exe' @(
+    'build',
+    '--file', $dockerfilePath,
+    '--label', "org.opencontainers.image.revision=$Revision",
+    '--label', "org.uengine.robo.component=$Name",
+    '--tag', $Tag,
+    $Context
+  ) $WorkspaceRoot
+}
+
 function Get-DockerImageId([string]$Tag) {
   $imageId = (& docker.exe image inspect $Tag --format '{{.Id}}').Trim()
   if ($LASTEXITCODE -ne 0 -or $imageId -notmatch '^sha256:[a-f0-9]{64}$') {
@@ -924,6 +946,7 @@ function Build-DesktopRelease {
     # 앱 코드는 안 바뀐다 — Bolt 게이트웨이가 Neo4j 프로토콜을 그대로 말한다.
     graphDb   = "uengine/ontological-db:$releaseId"
     graphBolt = "uengine/ontological-bolt:$releaseId"
+    authority = "uengine/robo-authority:$releaseId"
     mindsdb = 'mindsdb/mindsdb:v26.1.0'
     analyzer = "uengine/robo-analyzer:$releaseId"
     catalog  = "uengine/robo-data-catalog:$releaseId"
@@ -991,6 +1014,7 @@ function Build-DesktopRelease {
   }
   Build-ReleaseTarget 'graph-db' $images.graphDb $sources.ontological $commits.ontological 'runtime-db'
   Build-ReleaseTarget 'graph-bolt' $images.graphBolt $sources.ontological $commits.ontological 'runtime-bolt'
+  Build-ReleaseDockerfile 'authority' $images.authority $sources.architect $commits.architect 'docker\Dockerfile.authority'
   Build-ReleaseImage 'analyzer' $images.analyzer $sources.analyzer $commits.analyzer
   Build-ReleaseImage 'catalog' $images.catalog $sources.catalog $commits.catalog
   Build-ReleaseImage 'fabric' $images.fabric $sources.fabric $commits.fabric
@@ -1030,6 +1054,18 @@ function Build-DesktopRelease {
     }
     Copy-Item -LiteralPath $composeSource -Destination (Join-Path $runtimeRoot $composeName) -Force
   }
+  $authorityEnvExample = Join-Path $sources.architect 'desktop\runtime\central-authority.env.example'
+  if (-not (Test-Path -LiteralPath $authorityEnvExample)) {
+    throw "release.missing_authority_environment_template: $authorityEnvExample"
+  }
+  Copy-Item -LiteralPath $authorityEnvExample `
+    -Destination (Join-Path $runtimeRoot 'central-authority.env.example') -Force
+  $centralServerGuide = Join-Path $sources.architect 'desktop\runtime\CENTRAL-SERVER.md'
+  if (-not (Test-Path -LiteralPath $centralServerGuide)) {
+    throw "release.missing_central_server_guide: $centralServerGuide"
+  }
+  Copy-Item -LiteralPath $centralServerGuide `
+    -Destination (Join-Path $runtimeRoot 'CENTRAL-SERVER.md') -Force
   # The pdf2bpmn service mounts ./pdf2bpmn/facade.py. A bind mount whose source
   # is missing does not fail loudly -- Docker creates an empty DIRECTORY at that
   # path and uvicorn then starts with no app. Copy it, and fail here if absent.
@@ -1109,6 +1145,8 @@ function Build-DesktopRelease {
     '.gitkeep',
     'architect', 'config', 'pdf2bpmn',
     'compose.yml', 'compose.remote-graph.yml', 'compose.central-db.yml',
+    'central-authority.env.example',
+    'CENTRAL-SERVER.md',
     'robo-images.tar', 'runtime-manifest.json'
   )
   foreach ($entry in Get-ChildItem -LiteralPath $runtimeRoot -Force) {
@@ -1144,6 +1182,18 @@ function Build-DesktopRelease {
   Copy-Item -LiteralPath $installer -Destination $releaseInstaller -Force
   Copy-Item -LiteralPath $manifestPath -Destination (Join-Path $releaseRoot 'runtime-manifest.json') -Force
 
+  # DB 서버는 Windows 설치 EXE를 풀지 않아도 같은 릴리스의 중앙 compose와
+  # 비밀값 없는 환경 템플릿을 바로 받을 수 있어야 한다.
+  $serverRoot = Join-Path $releaseRoot 'central-server'
+  New-Item -ItemType Directory -Force -Path $serverRoot | Out-Null
+  Copy-Item -LiteralPath (Join-Path $runtimeRoot 'compose.central-db.yml') `
+    -Destination (Join-Path $serverRoot 'compose.yml') -Force
+  Copy-Item -LiteralPath (Join-Path $runtimeRoot 'central-authority.env.example') `
+    -Destination (Join-Path $serverRoot 'central-authority.env.example') -Force
+  Copy-Item -LiteralPath (Join-Path $runtimeRoot 'CENTRAL-SERVER.md') `
+    -Destination (Join-Path $serverRoot 'README.md') -Force
+  Copy-Item -LiteralPath $manifestPath -Destination (Join-Path $serverRoot 'runtime-manifest.json') -Force
+
   # 이미지 tar 는 **설치 파일 옆에** 둔다. 안에 넣으면 NSIS 가 설치본을 못 만든다 —
   # `makensis` 가 32비트라 주소공간이 2GB 남짓인데 tar 하나가 2.5GB 다
   # (2026-09-23 실측: 페이로드 3.27GB 에서 `failed creating mmap of …nsis.7z`).
@@ -1167,7 +1217,11 @@ function Build-DesktopRelease {
   # "No such file" 을 낸다(실측). 고객이 제일 먼저 하는 일이 이 대조다.
   $sumLines = @(
     "$installerSha  $(Split-Path $releaseInstaller -Leaf)",
-    "$archiveSha256  robo-images.tar"
+    "$archiveSha256  robo-images.tar",
+    "$((Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $serverRoot 'compose.yml')).Hash.ToLowerInvariant())  central-server/compose.yml",
+    "$((Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $serverRoot 'central-authority.env.example')).Hash.ToLowerInvariant())  central-server/central-authority.env.example",
+    "$((Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $serverRoot 'README.md')).Hash.ToLowerInvariant())  central-server/README.md",
+    "$((Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $serverRoot 'runtime-manifest.json')).Hash.ToLowerInvariant())  central-server/runtime-manifest.json"
   )
   Write-Utf8NoBom (Join-Path $releaseRoot 'SHA256SUMS') (($sumLines -join "`n") + "`n")
 
