@@ -30,7 +30,7 @@ notepad .env
 | Data Fabric | query 정책, localhost 변환 정책 | Neo4j, MindsDB URL/host/port |
 | Parser | `PARSER_*` 복구 정책 | data dir, bind port |
 | Gateway | 선택적 Spring/Gateway 튜닝 | 모든 내부 서비스 URL |
-| Architect | provider/model, change/ingestion/hybrid/wireframe 정책 | API port, Gateway/MCP URL, Neo4j |
+| Architect | provider/model, change/ingestion/hybrid/wireframe 정책, 중앙 authority/ingestion origin | API port, Gateway/MCP URL, Neo4j |
 
 정확한 허용 범위는 `release-environment.json`이 관리합니다. 릴리스 명령은 `.env`를
 그대로 복사하지 않고 여섯 개의 최소 범위 snapshot으로 분리하며 각 SHA-256을
@@ -60,6 +60,10 @@ runtime manifest에 기록합니다.
   `ROBO_DATA_FABRIC_URL`, `ROBO_ARCHITECT_URL`
 - `MINDSDB_URL`, `MINDSDB_HOST`, `MINDSDB_API_PORT`
 - Architect API port, Gateway/MCP URL
+
+`ROBO_AUTHORITY_URL`과 `ROBO_INGESTION_URL`은 일반 topology와 달리 중앙 보안
+경계를 선택하는 배포 설정이므로 Architect snapshot에 명시적으로 포함한다. 비우면
+직접 DB 실행 구조이며, 지정하면 중앙 실패 시 로컬 특권 실행으로 폴백하지 않는다.
 
 ## 회귀 검증
 
