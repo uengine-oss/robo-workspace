@@ -151,8 +151,7 @@
         "BC_SPEC_SPLIT_LINE_THRESHOLD",
         "LIBREOFFICE_BIN",
         "DOCX_NORMALIZE_TIMEOUT_S",
-        "ROBO_AUTHORITY_URL",
-        "ROBO_INGESTION_URL"
+        "ROBO_AUTHORITY_URL"
       ]
     }
   }
