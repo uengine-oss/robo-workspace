@@ -731,6 +731,20 @@ function Get-ReleaseSources {
     # 로 옮기고 그 `main` 을 가리킨다. **하드 포크다** — 상류가 고치는 것이 자동으로
     # 오지 않으므로, 필요하면 사람이 가져온다. 상류는 2026-08-24 이후 멈춰 있다.
     ontological = Repo-Path (Find-Repo 'ontological')
+    # 코드 생성 템플릿(`msa-ez/template-poscodx`). **별도 저장소이고 git 이 무시한다**
+    # (`robo-architect/.gitignore` 의 `templates/`). 그런데
+    # `docker/Dockerfile.authority` 가 `COPY templates` 로 **이미지에 굽는다** —
+    # 제품 기능(Template 탭)의 일부다.
+    #
+    # 2026-10-16 에 이것이 매니페스트 `source` 열 개에 없다는 것을 찾았다. 그래서
+    # 납품 이미지에 든 템플릿이 **어느 커밋인지 릴리스가 기록하지 않았다**.
+    # 여기에 넣으면 셋이 같이 해결된다 —
+    #   (가) 커밋이 `source.templates` 에 적힌다
+    #   (나) 내용이 바뀌면 `sourceDigest` 가 바뀌어 **releaseId 가 같이 바뀐다**
+    #   (다) 폴더가 없으면 `Assert-ReleaseSourceState` 가 **빌드 앞에서** 문다
+    #        (종전에는 11개 중 하나를 굽다가 `COPY templates` 에서 죽었다)
+    # 받는 법은 `robo-architect/scripts/fetch-templates.sh` (커밋 핀 포함).
+    templates = Join-Path $architect 'templates\template-poscodx'
   }
 }
 

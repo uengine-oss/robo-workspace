@@ -131,6 +131,7 @@
         "AUTH_",
         "LLM_",
         "OPENAI_",
+        "PGPT_",
         "ANTHROPIC_",
         "GOOGLE_",
         "CHANGE_PROPAGATION_",
