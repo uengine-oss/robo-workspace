@@ -976,7 +976,14 @@ function Build-DesktopRelease {
     # 2026-09-23: 8156f77(2026-03-17) 에서 4.5개월 뒤처져 있어 올린다. main 과 같은
     # 다이제스트다. **오늘 본 증상(게이트웨이 빈약)의 원인은 아니었다** — 같은 문서로
     # 신·구를 A/B 했더니 둘 다 gateway 1 을 냈다. 위생 목적의 최신화다.
-    pdf2bpmn = 'ghcr.io/uengine-oss/process-gpt-bpmn-extractor:c7992ce'
+    # 2026-10-20: c7992ce -> 977e5d4 (done15 §302).
+    # 977e5d4 는 그 저장소의 `enterprise-custom-p` 가지에서 구운 취약점 보정판이다.
+    # main 은 안 건드렸다. 치명·고위험 **155 -> 16**(같은 날·같은 도구).
+    # 바뀜 것 셋: streamlit 을 선택 의존으로(gitpython·tornado 등 41건) ·
+    # 결함 난 꾸러미만 잠금 올림 · setuptools 벤더 사본.
+    # ⚠ 남은 16 중 litellm 9건은 `process-gpt-agent-sdk 0.4.15` 가 묶고 있다 —
+    #   SDK 를 올리면 a2a-sdk 의존이 사라져 `a2a_server` 가 죽는다(실측).
+    pdf2bpmn = 'ghcr.io/uengine-oss/process-gpt-bpmn-extractor:977e5d4'
     # open-pencil 와이어프레임 렌더러. **없으면 와이어프레임이 조용히 빈다** —
     # `dev.sh` 는 Bun 으로 띄우지만 설치본에는 없었다. 부재가 오류로 안 보이고
     # (인제스천 경로가 `on_event=None`), 증상은 한참 뒤 Figma 싱크에서
