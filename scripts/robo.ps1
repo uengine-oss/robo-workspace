@@ -999,11 +999,14 @@ function Build-DesktopRelease {
     #     검사기가 커널 소스로 보고 **치명 7·고위험 211** 을 올렸다(37 의 93%)
     #   pillow -> 13.0.0 (CVE-2026-112900 OS 명령 주입 등 치명 3·고위험 16)
     #   certifi -> 2026.10.19 (GHSA-6q48-6c7w-9gw2 인증서 검증 · 치명)
-    # ⚠ 남은 1건은 `protobuf` 다. 고친 판은 있으나 **올리면 나빠진다** —
-    #   바닥을 박으면 SDK 가 0.11.0 으로 끌려가 `sse-starlette` 가 빠져
-    #   `a2a_server` 가 죽고, 파이썬을 3.13 으로 올리면 langchain 계열이 다른
-    #   가지로 풀려 **7 -> 15** 가 된다(둘 다 실측).
-    pdf2bpmn = 'ghcr.io/uengine-oss/process-gpt-bpmn-extractor:341c0f6'
+    # ⚠ 위 문단 아래에 "남은 1건은 protobuf" 라고 적혀 있었는데 **그것도 거뒀다**
+    #   (10-22 저녁 · 커밋 19ea082). 영향 범위가 `<5.29.6` 이라 6.x 로 갈 필요가
+    #   없었다 — scout 의 `Fixed version: 6.33.5` 만 보고 목표를 잘못 잡았었다.
+    #   하드 핀이 두 단 위에 있어(SDK 0.4.15 => a2a-sdk==0.3.0 => protobuf==5.29.5)
+    #   보통 방법으로는 안 되고, SDK 를 올리면 **HITL 이 오류 없이 꺼진다**(실측).
+    #   그래서 `[tool.uv] override-dependencies` 로 protobuf 만 5.29.6 으로 덮었다.
+    #   CI 가 지은 이미지를 직접 재서 **0C 0H** 와 기동을 확인했다.
+    pdf2bpmn = 'ghcr.io/uengine-oss/process-gpt-bpmn-extractor:19ea082'
     # open-pencil 와이어프레임 렌더러. **없으면 와이어프레임이 조용히 빈다** —
     # `dev.sh` 는 Bun 으로 띄우지만 설치본에는 없었다. 부재가 오류로 안 보이고
     # (인제스천 경로가 `on_event=None`), 증상은 한참 뒤 Figma 싱크에서
