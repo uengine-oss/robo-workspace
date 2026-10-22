@@ -8,7 +8,8 @@ param(
   [switch]$SkipBuild,
   [switch]$SkipFrontend,
   [switch]$NoElectron,
-  [switch]$ForcePorts
+  [switch]$ForcePorts,
+  [switch]$SkipSbom
 )
 
 $ErrorActionPreference = 'Stop'
@@ -1264,6 +1265,27 @@ function Build-DesktopRelease {
     "$((Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $serverRoot 'runtime-manifest.json')).Hash.ToLowerInvariant())  central-server/runtime-manifest.json"
   )
   Write-Utf8NoBom (Join-Path $releaseRoot 'SHA256SUMS') (($sumLines -join "`n") + "`n")
+
+  # SBOM 을 여기서 뽑는다. 손으로 돌리던 단계였고, 그래서 10-22 판은 굽기가 끝난
+  # 한참 뒤에야 생겼다 — 잊으면 구성품 목록 없는 납품물이 나가고 보안 검토가 멈춘다.
+  #
+  # 실패해도 릴리스를 깨지 않는다. docker scout 는 취약점 DB 를 물어보므로 망이
+  # 없으면 못 뽑는다. 대신 **무엇을 손으로 해야 하는지** 크게 남긴다.
+  $sbomScript = Join-Path $PSScriptRoot 'sbom-release.py'
+  if ($SkipSbom) {
+    Warn 'SBOM 을 건너뛴다(-SkipSbom). 납품 전에 반드시 뽑는다:'
+    Write-Host "  python ""$sbomScript"" ""$releaseRoot"""
+  } else {
+    Info 'SBOM 을 뽑는다 (이미지 11장 · 수 분 걸린다)'
+    & python $sbomScript $releaseRoot
+    if ($LASTEXITCODE -ne 0) {
+      Warn "SBOM 을 못 뽑았다(exit $LASTEXITCODE). 릴리스 자체는 온전하지만 sbom 폴더가 없다."
+      Warn '망을 확인하고 손으로 다시 돌린다:'
+      Write-Host "  python ""$sbomScript"" ""$releaseRoot"""
+    } else {
+      Pass "sbom ready: $(Join-Path $releaseRoot 'sbom')"
+    }
+  }
 
   Pass "release ready: $releaseRoot"
   Write-Host "Installer: $releaseInstaller"
