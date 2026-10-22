@@ -981,9 +981,28 @@ function Build-DesktopRelease {
     # main 은 안 건드렸다. 치명·고위험 **155 -> 16**(같은 날·같은 도구).
     # 바뀜 것 셋: streamlit 을 선택 의존으로(gitpython·tornado 등 41건) ·
     # 결함 난 꾸러미만 잠금 올림 · setuptools 벤더 사본.
-    # ⚠ 남은 16 중 litellm 9건은 `process-gpt-agent-sdk 0.4.15` 가 묶고 있다 —
-    #   SDK 를 올리면 a2a-sdk 의존이 사라져 `a2a_server` 가 죽는다(실측).
-    pdf2bpmn = 'ghcr.io/uengine-oss/process-gpt-bpmn-extractor:977e5d4'
+    # ⚠ 그때 "litellm 9건은 `process-gpt-agent-sdk 0.4.15` 가 묶는다" 고 적었는데
+    #   **틀렸다** — 잠금을 열어 보니 SDK 의 litellm 의존에 **버전 제약이 아예
+    #   없었다**(2026-10-21). 1.83.0 은 잠글 당시의 최신이었을 뿐이다.
+    #
+    # 2026-10-22: 977e5d4 -> 341c0f6. 치명·고위험 **37 -> 1**(같은 날·같은 도구).
+    # 같은 `enterprise-custom-p` 가지이고 main 은 이번에도 안 건드렸다 —
+    # 가지를 밀고 `publish-ghcr` 워크플로를 **수동 실행**해 CI 가 지었다.
+    # ⚠ **CI 가 지은 이미지를 직접 재서** 1건인 것을 확인했다 — 내가 여기서 지은
+    #   것과 다이제스트가 다르므로 로컬 수치를 그대로 믿지 않는다. 기동 연막
+    #   시험(모듈 적재·pillow 13.0.0·python 3.11.17)도 그 이미지로 했다.
+    # 바뀐 것 넷:
+    #   베이스 `python:3.11-slim`(Debian trixie) -> **ubuntu:24.04** — trixie 의
+    #     zlib·libxml2 를 데비안이 안 고쳤다. 파이썬 판은 uv 가 받아 **3.11 유지**
+    #   `build-essential` 을 uv sync 뒤 purge — 그것이 끌고 온 `linux-libc-dev` 를
+    #     검사기가 커널 소스로 보고 **치명 7·고위험 211** 을 올렸다(37 의 93%)
+    #   pillow -> 13.0.0 (CVE-2026-112900 OS 명령 주입 등 치명 3·고위험 16)
+    #   certifi -> 2026.10.19 (GHSA-6q48-6c7w-9gw2 인증서 검증 · 치명)
+    # ⚠ 남은 1건은 `protobuf` 다. 고친 판은 있으나 **올리면 나빠진다** —
+    #   바닥을 박으면 SDK 가 0.11.0 으로 끌려가 `sse-starlette` 가 빠져
+    #   `a2a_server` 가 죽고, 파이썬을 3.13 으로 올리면 langchain 계열이 다른
+    #   가지로 풀려 **7 -> 15** 가 된다(둘 다 실측).
+    pdf2bpmn = 'ghcr.io/uengine-oss/process-gpt-bpmn-extractor:341c0f6'
     # open-pencil 와이어프레임 렌더러. **없으면 와이어프레임이 조용히 빈다** —
     # `dev.sh` 는 Bun 으로 띄우지만 설치본에는 없었다. 부재가 오류로 안 보이고
     # (인제스천 경로가 `on_event=None`), 증상은 한참 뒤 Figma 싱크에서
