@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""릴리스의 구성품 목록(SBOM)을 **CycloneDX** 로 뽑는다.
+"""릴리스의 구성품 목록(SBOM)을 **두 형식**(CycloneDX · SPDX)으로 뽑는다.
 
 ## 왜 있나
 
@@ -9,8 +9,13 @@
 ## 무엇을 내나
 
     <릴리스>/sbom/<이미지>.cdx.json   이미지마다 하나 (CycloneDX 1.x · JSON)
-    <릴리스>/sbom/INDEX.md            사람이 먼저 읽는 것 — 무엇이·몇 개·왜 남았나
+    <릴리스>/sbom/<이미지>.spdx.json  이미지마다 하나 (SPDX · JSON)
+    <릴리스>/sbom/INDEX.md            사람이 먼저 읽는 것 — 무엇이·몇 개·무엇이 남았나
     <릴리스>/sbom/SHA256SUMS          위 파일들의 지문
+
+⚠ **남은 취약점은 글로 박지 않고 그 자리에서 센다**(2026-10-23). 박아 두면
+거둔 뒤에도 납품물이 "아직 남았다" 고 말한다 — 실제로 10-22 판이 그랬다.
+자세한 까닭은 `run_cves` 의 머리말.
 
 ⚠ **우리가 굽는 것과 밖에서 당겨 오는 것을 가른다.** 열 개는 릴리스 tar 에
 구워 담고, `pdf2bpmn` 하나만 ghcr 에서 당겨 온다. 소유가 아니라 포장 방식의
@@ -23,6 +28,7 @@ import hashlib
 import io
 import json
 import os
+import re
 import subprocess
 import sys
 
@@ -58,6 +64,49 @@ def run_sbom(fmt, ref, out_path, count_key):
     except Exception as exc:
         return None, "JSON 이 아니다: %s" % exc
     return len(doc.get(count_key) or []), None
+
+
+def run_cves(ref):
+    """한 이미지의 **치명+고위험** 건수와 취약한 꾸러미들을 센다.
+
+    ⚠ 이 함수가 있는 까닭. 전에는 "무엇이 왜 남았나" 를 **이 스크립트에 글로
+    박아** 뒀다. 그래서 10-22 에 gateway 치명 2 와 pdf2bpmn 고위험 1 을 거둔
+    뒤에도 납품물의 `INDEX.md` 는 **여전히 3건이 남았다고 적고 있었다.**
+    취약점이 없는데 납품물이 "있다" 고 말하는 것은, 있는 걸 빠뜨리는 것만큼
+    나쁘다 — 심사에서 고친 것을 안 고쳤다고 보고하는 셈이다.
+
+    그래서 **세는 일과 쓰는 일을 같은 순간에** 둔다. 사람이 고치는 걸 잊을
+    자리를 없앤다.
+
+    ⚠ 읽을 줄은 `vulnerabilities │` 가 있는 **요약줄 하나**다. 꾸러미 줄도
+    `2C 10H` 와 같은 모양이라 마지막 줄을 집으면 **꾸러미 하나의 수**를 전체로
+    읽는다 — 10-22 에 실제로 그래서 mindsdb 를 257 대신 1 로 봤다.
+    """
+    try:
+        p = subprocess.run(
+            ["docker", "scout", "cves", "--only-severity", "critical,high", ref],
+            capture_output=True, text=True, timeout=1800,
+            encoding="utf-8", errors="replace")
+    except Exception as exc:
+        return None, None, "실행 실패: %s" % type(exc).__name__
+    out = (p.stdout or "") + "\n" + (p.stderr or "")
+    crit = high = None
+    for line in out.splitlines():
+        if "vulnerabilities" in line and "│" in line:
+            m = re.search(r"(\d+)C\s+(\d+)H", line)
+            if m:
+                crit, high = int(m.group(1)), int(m.group(2))
+                break
+    if crit is None:
+        return None, None, "요약줄을 못 찾았다"
+    # 꾸러미 줄: "   2C     0H     0M     0L  org.springframework/spring-webflux 6.2.19"
+    pkgs = []
+    for line in out.splitlines():
+        m = re.match(r"\s+(\d+)C\s+(\d+)H\s+\d+M\s+\d+L\s+(\S+)\s+(\S+)\s*$", line)
+        if m and (int(m.group(1)) or int(m.group(2))):
+            pkgs.append("%s %s — 치명 %s · 고위험 %s"
+                        % (m.group(3), m.group(4), m.group(1), m.group(2)))
+    return crit, high, pkgs
 
 
 def sha256(path):
@@ -104,13 +153,21 @@ def main(release_dir):
             else:
                 counts[fmt] = n
                 files.append(os.path.basename(path))
-        if len(counts) == len(FORMATS):
-            rows.append((kind, label, ref, counts["cyclonedx"], label))
-            print("  %-22s cyclonedx %5d · spdx %5d" %
-                  (label, counts["cyclonedx"], counts["spdx"]))
+        if len(counts) != len(FORMATS):
+            continue
+        # 같은 이미지에서 **구성품과 취약점을 함께** 센다 — 둘이 다른 순간에서
+        # 나오면 색인의 글과 숫자가 어긋난다(이 파일 머리의 `run_cves` 참고).
+        crit, high, pkgs = run_cves(ref)
+        if crit is None:
+            failed.append(("%s (cves)" % label, pkgs))
+            print("  %-22s cves       ⚠ %s" % (label, pkgs))
+            continue
+        rows.append((kind, label, ref, counts["cyclonedx"], crit, high, pkgs))
+        print("  %-22s cyclonedx %5d · spdx %5d · 취약 %dC %dH" %
+              (label, counts["cyclonedx"], counts["spdx"], crit, high))
 
     if failed:
-        print("⚠ **못 뽑은 것 %d개** — 목록을 내지 않는다" % len(failed))
+        print("⚠ **못 읽은 것 %d개** — 목록을 내지 않는다" % len(failed))
         return 1
 
     sums = os.path.join(out_dir, "SHA256SUMS")
@@ -147,7 +204,7 @@ def write_index(out_dir, release_dir, rows):
         "| 이미지 | 구성품 |",
         "|---|---:|",
     ]
-    for kind, label, _ref, n, _f in rows:
+    for kind, label, _ref, n, _c, _h, _p in rows:
         if kind == "ours":
             lines.append("| %s | %d |" % (label, n))
     lines += [
@@ -157,34 +214,69 @@ def write_index(out_dir, release_dir, rows):
         "| 이미지 | 구성품 | 무엇인가 |",
         "|---|---:|---|",
     ]
-    for kind, label, _ref, n, _f in rows:
+    for kind, label, _ref, n, _c, _h, _p in rows:
         if kind == "pulled":
             lines.append("| %s | %d | **우리 소스**다(uengine-oss). 소유가 아니라 "
                          "포장이 다르다 — 이 하나만 ghcr 에서 당겨 온다 |" % (label, n))
         elif kind == "third":
             lines.append("| %s | %d | **남의 제품**. 이 목록에서 유일하다 |"
                          % (label, n))
+    # ── 점검 결과 — **이 실행에서 잰 값으로만 쓴다** ────────────────────────
+    #
+    # 전에는 아래 글이 코드에 박혀 있었다. 그래서 거둔 뒤에도 납품물이 "아직
+    # 남았다" 고 말했다(10-22). 이제 글과 숫자가 **같은 실행**에서 나온다.
+    ours_total = sum(r[4] + r[5] for r in rows if r[0] in ("ours", "pulled"))
+    third_total = sum(r[4] + r[5] for r in rows if r[0] == "third")
+    clean = [r[1] for r in rows if (r[4] + r[5]) == 0]
+    dirty = [r for r in rows if (r[4] + r[5]) > 0]
+
     lines += [
         "",
-        "## 점검에서 남은 것과 그 이유",
+        "## 점검에서 남은 것 — **이 목록을 뽑은 날 잰 값**",
         "",
-        "> 숫자의 권위는 `electron-test/2026-10-22/취약점-조치-2026-10-22.md` 다.",
+        "> 도구 `docker scout cves --only-severity critical,high`.",
+        "> **구성품과 같은 실행에서 쟀다** — 글과 숫자가 어긋날 수 없다.",
         "",
         "```text",
-        "robo-api-gateway  **치명 2**  spring-webflux 6.2.19 — 6.2 줄에 고친 판이",
-        "                             없다(Central 확인). Boot 4 로 가면 범위를",
-        "                             벗어나지만 Spring Cloud 가 마일스톤뿐이라",
-        "                             납품물에 실을 수 없다. 정식판을 기다린다",
-        "pdf2bpmn          **고위험 1** protobuf 5.29.5 — 고친 판은 있으나 올리면",
-        "                             SDK 가 끌려가 `a2a_server` 가 죽고, 파이썬을",
-        "                             올리면 다른 것이 더 늘어난다(둘 다 실측)",
-        "mindsdb           **257**     최신판이라 올릴 판이 없다. 쓰기로 한",
-        "                             사용자 결정이다 — 근거 문서는 ISS-38",
-        "그 밖의 우리 이미지 여덟      **0건**",
+        "우리 것(굽는 9 + 당겨 오는 1)   **%d건**" % ours_total,
+        "남의 것(mindsdb)                **%d건**" % third_total,
+        "합계                            **%d건**" % (ours_total + third_total),
         "```",
         "",
+    ]
+    if dirty:
+        # 꾸러미를 **다 싣지 않는다.** mindsdb 하나가 55개를 내는데 한 칸에 다
+        # 넣으면 표가 읽히지 않는다(10-23 에 실제로 그랬다). 큰 것 몇 개로
+        # 성격을 보이고, 전부는 옆의 SBOM·CVE 파일이 들고 있다.
+        TOP = 8
+        lines += ["| 이미지 | 치명 | 고위험 | 큰 꾸러미 (치명+고위험 순) |",
+                  "|---|---:|---:|---|"]
+        for _k, label, _ref, _n, crit, high, pkgs in dirty:
+            if not isinstance(pkgs, list) or not pkgs:
+                lines.append("| %s | %d | %d | — |" % (label, crit, high))
+                continue
+            head = pkgs[:TOP]
+            rest = len(pkgs) - len(head)
+            what = "<br>".join(head)
+            if rest > 0:
+                what += "<br>… 그 밖 **%d개**" % rest
+            lines.append("| %s | %d | %d | %s |" % (label, crit, high, what))
+        lines += ["", "> 꾸러미는 큰 것 %d개만 적는다 — 전부는 같은 폴더의 "
+                  "`<이름>.cdx.json` · `<이름>.spdx.json` 에 있다." % TOP]
+        lines += [
+            "",
+            "⚠ **왜 남았는지는 숫자가 말해 주지 않는다.** 사유는 사람이 적는다 —",
+            "`electron-test/` 의 그날 `취약점-조치-*.md` 가 그 자리다.",
+            "",
+        ]
+    else:
+        lines += ["**남은 것이 없다** — 위 이미지 전부 치명·고위험 0건이다.", ""]
+    if clean:
+        lines += ["0건인 이미지 **%d개**: %s" % (len(clean), " · ".join(clean)), ""]
+    lines += [
         "⚠ 취약점 DB 는 **날마다 움직인다.** 이 목록은 뽑은 날의 사진이다 —",
-        "다시 물어야 할 때는 같은 날·같은 도구로 다시 잰다.",
+        "다시 물어야 할 때는 같은 날·같은 도구로 다시 잰다. **0 은 \"오늘 잰",
+        "범위에서 0\" 이지 \"앞으로도 0\" 이 아니다.**",
         "",
     ]
     io.open(os.path.join(out_dir, "INDEX.md"), "w", encoding="utf-8",
