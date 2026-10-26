@@ -1118,6 +1118,14 @@ function Build-DesktopRelease {
   }
   Copy-Item -LiteralPath $centralServerGuide `
     -Destination (Join-Path $runtimeRoot 'CENTRAL-SERVER.md') -Force
+  # 값을 넣는 도구. **릴리스 폴더만 들고 설치하는 사람**이 쓴다 —
+  # 이것이 없으면 가이드 §0-A·§3 을 할 방법이 없다(2026-10-26).
+  $envScript = Join-Path $sources.architect 'desktop\runtime\robo-env.ps1'
+  if (-not (Test-Path -LiteralPath $envScript)) {
+    throw "release.missing_env_script: $envScript"
+  }
+  Copy-Item -LiteralPath $envScript `
+    -Destination (Join-Path $runtimeRoot 'robo-env.ps1') -Force
   # The pdf2bpmn service mounts ./pdf2bpmn/facade.py. A bind mount whose source
   # is missing does not fail loudly -- Docker creates an empty DIRECTORY at that
   # path and uvicorn then starts with no app. Copy it, and fail here if absent.
@@ -1199,6 +1207,7 @@ function Build-DesktopRelease {
     'compose.yml', 'compose.remote-graph.yml', 'compose.central-db.yml',
     'central-authority.env.example',
     'CENTRAL-SERVER.md',
+    'robo-env.ps1',
     'robo-images.tar', 'runtime-manifest.json'
   )
   foreach ($entry in Get-ChildItem -LiteralPath $runtimeRoot -Force) {
@@ -1245,6 +1254,9 @@ function Build-DesktopRelease {
   Copy-Item -LiteralPath (Join-Path $runtimeRoot 'CENTRAL-SERVER.md') `
     -Destination (Join-Path $serverRoot 'README.md') -Force
   Copy-Item -LiteralPath $manifestPath -Destination (Join-Path $serverRoot 'runtime-manifest.json') -Force
+  # 뿌리에도 둔다 — 설치 **전에** 쓰는 도구라 설치본 안에만 있으면 늦다.
+  Copy-Item -LiteralPath (Join-Path $runtimeRoot 'robo-env.ps1') `
+    -Destination (Join-Path $releaseRoot 'robo-env.ps1') -Force
 
   # 이미지 tar 는 **설치 파일 옆에** 둔다. 안에 넣으면 NSIS 가 설치본을 못 만든다 —
   # `makensis` 가 32비트라 주소공간이 2GB 남짓인데 tar 하나가 2.5GB 다
@@ -1273,7 +1285,8 @@ function Build-DesktopRelease {
     "$((Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $serverRoot 'compose.yml')).Hash.ToLowerInvariant())  central-server/compose.yml",
     "$((Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $serverRoot 'central-authority.env.example')).Hash.ToLowerInvariant())  central-server/central-authority.env.example",
     "$((Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $serverRoot 'README.md')).Hash.ToLowerInvariant())  central-server/README.md",
-    "$((Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $serverRoot 'runtime-manifest.json')).Hash.ToLowerInvariant())  central-server/runtime-manifest.json"
+    "$((Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $serverRoot 'runtime-manifest.json')).Hash.ToLowerInvariant())  central-server/runtime-manifest.json",
+    "$((Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $releaseRoot 'robo-env.ps1')).Hash.ToLowerInvariant())  robo-env.ps1"
   )
   Write-Utf8NoBom (Join-Path $releaseRoot 'SHA256SUMS') (($sumLines -join "`n") + "`n")
 
