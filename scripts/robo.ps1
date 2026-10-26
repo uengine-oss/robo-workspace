@@ -1006,7 +1006,15 @@ function Build-DesktopRelease {
     #   보통 방법으로는 안 되고, SDK 를 올리면 **HITL 이 오류 없이 꺼진다**(실측).
     #   그래서 `[tool.uv] override-dependencies` 로 protobuf 만 5.29.6 으로 덮었다.
     #   CI 가 지은 이미지를 직접 재서 **0C 0H** 와 기동을 확인했다.
-    pdf2bpmn = 'ghcr.io/uengine-oss/process-gpt-bpmn-extractor:19ea082'
+    # ⚠ 2026-10-26 에 **또 올라왔다 — 0 에서 고위험 4 로.** 우리는 사흘 동안
+    #   아무것도 안 바꿨다. pypdf 6.21.1 에 셋(CVE-2026-115585·115580·115572,
+    #   영향 범위 `<6.21.2`), filelock 3.29.0 에 하나(CVE-2026-112940,
+    #   `>=3.20.4,<=4.2.0`). 각각 **벗어나는 가장 작은 판**을 바닥으로 넣었다.
+    #   filelock 바닥이 litellm 과 부딪혀(litellm 은 1.106.4 까지 전부
+    #   `filelock<4.0`) 해결기가 litellm 을 1.103.9 로 내리는데, OSV 로 재니
+    #   **1.103.9 와 1.106.4 둘 다 0건**이라 보안상 잃는 것이 없다.
+    #   CI 가 지은 이미지를 직접 재서 **0C 0H** 를 확인했다(커밋 4ea4900).
+    pdf2bpmn = 'ghcr.io/uengine-oss/process-gpt-bpmn-extractor:4ea4900'
     # open-pencil 와이어프레임 렌더러. **없으면 와이어프레임이 조용히 빈다** —
     # `dev.sh` 는 Bun 으로 띄우지만 설치본에는 없었다. 부재가 오류로 안 보이고
     # (인제스천 경로가 `on_event=None`), 증상은 한참 뒤 Figma 싱크에서
