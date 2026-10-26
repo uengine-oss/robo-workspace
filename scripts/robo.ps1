@@ -962,7 +962,11 @@ function Build-DesktopRelease {
     graphDb   = "uengine/ontological-db:$releaseId"
     graphBolt = "uengine/ontological-bolt:$releaseId"
     authority = "uengine/robo-authority:$releaseId"
-    mindsdb = 'mindsdb/mindsdb:v26.1.0'
+    # ⚠ **당겨만 오지 않는다.** 2026-10-26 에 다듬은 판을 싣는다 —
+    #   위 이미지는 `latest` 와 같은 2026-04-23 판이고 더 새 것이 없다.
+    #   서버가 안 쓰는 `iterfzf/fzf` 를 걷어 **273 → 231** 로 줄인다.
+    #   왜·무엇을·왜 평탄화까지 해야 하는지는 docker/mindsdb-trimmed/Dockerfile.
+    mindsdb = "uengine/mindsdb-trimmed:$releaseId"
     analyzer = "uengine/robo-analyzer:$releaseId"
     catalog  = "uengine/robo-data-catalog:$releaseId"
     fabric   = "uengine/robo-data-fabric:$releaseId"
@@ -1048,7 +1052,57 @@ function Build-DesktopRelease {
   Assert-ManifestTemplateCovers $templateProbe.imageIds 'imageIds' @($images.Keys)  $templatePath
   Pass 'manifest template covers every key the release writes'
 
-  Invoke-Checked 'docker.exe' @('pull', $images.mindsdb) $WorkspaceRoot
+  # mindsdb 는 **당기고 다듬는다**. 다듬은 결과가 $images.mindsdb 다.
+  $mindsdbUpstream = 'mindsdb/mindsdb:v26.1.0'
+  $mindsdbContext = Join-Path $WorkspaceRoot 'docker\mindsdb-trimmed'
+  if (-not (Test-Path -LiteralPath (Join-Path $mindsdbContext 'Dockerfile'))) {
+    throw "release.missing_mindsdb_dockerfile: $mindsdbContext"
+  }
+  Invoke-Checked 'docker.exe' @('pull', '--platform', 'linux/amd64', $mindsdbUpstream) $WorkspaceRoot
+  $mindsdbStage = "robo-mindsdb-stage:$releaseId"
+  Invoke-Checked 'docker.exe' @('build', '--platform', 'linux/amd64',
+    '--file', (Join-Path $mindsdbContext 'Dockerfile'),
+    '--tag', $mindsdbStage, $mindsdbContext) $WorkspaceRoot
+  # ⚠ **평탄화하지 않으면 숫자가 안 준다.** 지운 파일이 아래 레이어에 남아
+  #   검사기가 거기서 본다(2026-10-26 실측: 지우기만 하면 273 그대로).
+  #   그리고 평탄화는 설정을 전부 잃으므로 -c 로 다시 선언한다 —
+  #   HEALTHCHECK 를 빠뜨리면 compose 의 `service_healthy` 가 영원히 안 선다.
+  #   ⚠ 파이프로 넘기지 않는다. PowerShell 파이프는 바이너리를 망가뜨린다.
+  $mindsdbTmp = "robo-mindsdb-flatten-$([guid]::NewGuid().ToString('N').Substring(0,8))"
+  # ⚠ 임시 tar 를 $RuntimeRoot 에 두지 않는다. PowerShell 변수는 **대소문자를
+  #   구분하지 않아서** 그 이름은 이 지점에서 `$runtimeRoot`(포장 폴더)와 **같은
+  #   변수**다 — 2.7GB 가 납품 폴더에 잠깐 들어간다. 시스템 임시 폴더를 쓴다.
+  $mindsdbTar = Join-Path ([IO.Path]::GetTempPath()) "$mindsdbTmp.tar"
+  Invoke-Checked 'docker.exe' @('create', '--name', $mindsdbTmp, $mindsdbStage) $WorkspaceRoot
+  try {
+    Invoke-Checked 'docker.exe' @('export', '--output', $mindsdbTar, $mindsdbTmp) $WorkspaceRoot
+    Invoke-Checked 'docker.exe' @('import',
+      '--change', 'ENTRYPOINT ["bash","-c","python -Im mindsdb --config=/root/mindsdb_config.json --api=http,mysql"]',
+      '--change', 'WORKDIR /mindsdb',
+      '--change', 'EXPOSE 47334', '--change', 'EXPOSE 47335',
+      '--change', 'HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=5 CMD curl -fsS "http://localhost:47334/api/status"',
+      '--change', 'ENV PATH=/venv/bin:/usr/local/bin:/usr/local/sbin:/usr/sbin:/usr/bin:/sbin:/bin',
+      '--change', 'ENV LANG=C.UTF-8',
+      '--change', 'ENV PYTHON_VERSION=3.10.20',
+      '--change', 'ENV UV_LINK_MODE=copy',
+      '--change', 'ENV UV_PYTHON_DOWNLOADS=never',
+      '--change', 'ENV UV_PYTHON=python3.10.20',
+      '--change', 'ENV UV_PROJECT_ENVIRONMENT=/mindsdb',
+      '--change', 'ENV VIRTUAL_ENV=/venv',
+      '--change', 'ENV PYTHONUNBUFFERED=1',
+      '--change', 'ENV MINDSDB_DOCKER_ENV=1',
+      $mindsdbTar, $images.mindsdb) $WorkspaceRoot
+  } finally {
+    docker.exe rm -f $mindsdbTmp 2>&1 | Out-Null
+    Remove-Item -LiteralPath $mindsdbTar -Force -ErrorAction SilentlyContinue
+    docker.exe rmi -f $mindsdbStage 2>&1 | Out-Null
+  }
+  # **다듬은 자리에서 다시 잰다.** 평탄화가 설정을 잃었는지 여기서 걸린다.
+  $mindsdbProbe = (& docker.exe image inspect $images.mindsdb --format '{{if .Config.Healthcheck}}hc{{end}}|{{.Config.WorkingDir}}|{{len .Config.ExposedPorts}}') -join ''
+  if ($mindsdbProbe -notmatch '^hc\|/mindsdb\|2$') {
+    throw "release.mindsdb_flatten_lost_config: $mindsdbProbe"
+  }
+  Pass "mindsdb trimmed and flattened: $($images.mindsdb)"
   # amd64 only upstream; the runtime compose declares the same platform.
   Invoke-Checked 'docker.exe' @('pull', '--platform', 'linux/amd64', $images.pdf2bpmn) $WorkspaceRoot
   # graph 저장소는 다단계 빌드의 **두 타깃**이다. 하나로 묶지 않는다 — Bolt 는 상태가
