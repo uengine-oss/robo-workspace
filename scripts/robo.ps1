@@ -1303,7 +1303,7 @@ function Build-DesktopRelease {
     Warn 'SBOM 을 건너뛴다(-SkipSbom). 납품 전에 반드시 뽑는다:'
     Write-Host "  python ""$sbomScript"" ""$releaseRoot"""
   } else {
-    Info 'SBOM 을 뽑는다 (이미지 11장 · 수 분 걸린다)'
+    Info 'SBOM 을 뽑는다 (이미지 10장 · 수 분 걸린다)'
     & python $sbomScript $releaseRoot
     if ($LASTEXITCODE -ne 0) {
       Warn "SBOM 을 못 뽑았다(exit $LASTEXITCODE). 릴리스 자체는 온전하지만 sbom 폴더가 없다."
