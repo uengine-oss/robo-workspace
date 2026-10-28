@@ -3,8 +3,11 @@
 
 ## 왜 있나
 
-납품물에 **무엇이 들어 있는지** 목록으로 내야 한다(ENT-SEC-003). 이미지 열한
-개를 각각 뽑고, 하나로 묶은 색인을 같이 낸다.
+납품물에 **무엇이 들어 있는지** 목록으로 내야 한다(ENT-SEC-003). 이미지 **열
+개**를 각각 뽑고, 하나로 묶은 색인을 같이 낸다.
+
+라이선스는 **따로 센다** — `sbom-licenses.py` 가 여기서 나온 `*.cdx.json` 을 읽어
+`LICENSES.md` 를 만든다.
 
 ## 무엇을 내나
 
@@ -19,7 +22,9 @@
 
 ⚠ **우리가 굽는 것과 밖에서 당겨 오는 것을 가른다.** 열 개는 릴리스 tar 에
 구워 담고, `pdf2bpmn` 하나만 ghcr 에서 당겨 온다. 소유가 아니라 포장 방식의
-차이다 — `pdf2bpmn` 도 우리 소스다. **남의 것은 `mindsdb` 하나뿐이다.**
+차이다 — `pdf2bpmn` 도 우리 소스다.
+⚠ **2026-10-27 부터 남의 제품은 하나도 없다.** 마지막 하나였던 `mindsdb` 를
+걷어냈다(그것 혼자 231건을 들고 있었다).
 
 ⚠ 못 읽은 이미지가 하나라도 있으면 **실패로 낸다.** 빠진 채로 목록을 내면
 "없다" 와 "못 읽었다" 를 심사에서 가를 수 없다.
@@ -31,6 +36,14 @@ import os
 import re
 import subprocess
 import sys
+
+# ⚠ **콘솔이 cp949 면 한글·기호 한 글자가 작업을 죽인다.** 2026-10-29 에 실제로
+#   났다 — SBOM 하나가 실패해서 그 사실을 찍으려던 줄(⚠)이 UnicodeEncodeError
+#   로 죽어, **무엇이 실패했는지도 못 본 채** 전체가 섰다. 보고하는 길이 재는 길을
+#   죽이면 안 된다. 출력을 UTF-8 로 돌리고 못 찍는 글자는 바꿔 쓴다.
+for _stream in (sys.stdout, sys.stderr):
+    if hasattr(_stream, "reconfigure"):
+        _stream.reconfigure(encoding="utf-8", errors="replace")
 
 OURS = ["ontological-db", "ontological-bolt", "robo-analyzer", "robo-antlr-parser",
         "robo-api-gateway", "robo-authority", "robo-data-catalog",
@@ -117,10 +130,36 @@ def sha256(path):
     return h.hexdigest()
 
 
+def ensure_docker():
+    """도커가 살아 있나 — **재기 전에** 본다.
+
+    ⚠ 2026-10-29 실측: Docker Desktop 이 꺼져 있는데 그대로 돌렸더니 이미지
+    **스무 개가 전부** `x Pull failed` 로 떨어졌다. scout 는 로컬에서 못 찾으면
+    레지스트리로 가고, 거기도 못 가면 그 문구를 낸다 — 즉 **"도커가 꺼졌다" 가
+    "당기기 실패" 로 보인다.** 그 말을 본 사람은 망·권한·토큰을 뒤지게 된다.
+    """
+    try:
+        probe = subprocess.run(["docker", "info", "--format", "{{.ServerVersion}}"],
+                               capture_output=True, text=True,
+                               encoding="utf-8", errors="replace")
+    except OSError as exc:
+        return "도커 명령을 찾을 수 없다: %s" % exc
+    if probe.returncode != 0:
+        first = (probe.stderr or probe.stdout or "").strip().splitlines()
+        return ("도커에 닿지 못했다 — Docker Desktop 이 떠 있는지 먼저 본다. %s"
+                % (first[0][:160] if first else ""))
+    return None
+
+
 def main(release_dir):
     manifest = os.path.join(release_dir, "runtime-manifest.json")
     if not os.path.exists(manifest):
         print("매니페스트가 없다: %s" % manifest)
+        return 1
+    # **재기 전에** 도구가 살아 있는지 본다 — 아니면 엉뚱한 실패가 스무 줄 난다.
+    trouble = ensure_docker()
+    if trouble:
+        print(trouble)
         return 1
     images = (json.load(io.open(manifest, encoding="utf-8")).get("images") or {})
     tag = None
@@ -133,10 +172,11 @@ def main(release_dir):
         tag = os.path.basename(release_dir.rstrip("\\/"))
 
     targets = [("ours", n, "uengine/%s:%s" % (n, tag)) for n in OURS]
-    for key, label in (("pdf2bpmn", "pdf2bpmn"), ("mindsdb", "mindsdb")):
-        ref = images.get(key)
-        if ref:
-            targets.append(("pulled" if key == "pdf2bpmn" else "third", label, ref))
+    # 밖에서 당겨 오는 것은 `pdf2bpmn` 하나다. **남의 제품은 없다**(2026-10-27).
+    # 예전에는 여기 `mindsdb` 가 같이 있었고 그 하나가 취약점 231건이었다.
+    ref = images.get("pdf2bpmn")
+    if ref:
+        targets.append(("pulled", "pdf2bpmn", ref))
 
     out_dir = os.path.join(release_dir, "sbom")
     os.makedirs(out_dir, exist_ok=True)
@@ -239,7 +279,7 @@ def write_index(out_dir, release_dir, rows):
         "",
         "```text",
         "우리 것(굽는 9 + 당겨 오는 1)   **%d건**" % ours_total,
-        "남의 것(mindsdb)                **%d건**" % third_total,
+        "남의 제품                        **없다** (2026-10-27 에 걷어냈다)",
         "합계                            **%d건**" % (ours_total + third_total),
         "```",
         "",
