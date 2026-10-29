@@ -277,6 +277,56 @@ function Get-ReleaseEnvironmentConfigurationErrors([string]$Path=$WorkspaceEnvPa
     }
   }
 
+  # 납품판에 **개발사 내부 모델 주소**가 남는다 — 두 번 물렸다.
+  #
+  #   2026-10-29 ①  분석기 봉인(capabilities)이 gpt-5.2 를 가리켰다. P-GPT 는
+  #                 gpt-4.1 을 중계한다 — 봉인 검증은 **매 분석 전**에 돌므로
+  #                 분석이 통째로 죽는다
+  #   2026-10-29 ②  ROBO_SEARCH_LLM_CONFIG 가 gpt54_mini_openai 였다.
+  #                 그 갈래의 api_base 는 **api.openai.com** 이다 — 오프라인
+  #                 사내망에서 닿지 않는다. 코드 주석이 "되돌리려면 이걸 써라"
+  #                 라고 적어 둔 값이 개발자 .env 에 남아 그대로 구워졌다
+  #   2026-10-29 ③  LLM_BASE_URL 이 **비어** 있었다. pdf2bpmn 의 임베딩 경로는
+  #                 그 값으로 URL 을 손수 조립하므로 ValueError 로 죽는다
+  #                 (OPENAI_BASE_URL 이 대신 메워 주지 않는다 — 다른 이름이다)
+  #
+  # 셋 다 **기동에서는 안 드러난다.** 그래서 굽는 자리에서 센다. 거절이 아니라
+  # 경고다 — 어떤 갈래가 맞는지는 현장이 정하고, 우리가 못 보는 배치도 있다.
+  if($posture.channel -eq 'delivery'){
+    $bakedBases=@(@('LLM_API_BASE','OPENAI_BASE_URL','ROBO_EMBED_API_BASE') |
+      ForEach-Object{([string]$values[$_]).Trim()} | Where-Object{$_}) | Sort-Object -Unique
+    # ③ 주소 이름인데 비어 있는 것
+    $blankBases=@(@('LLM_BASE_URL','LLM_API_BASE','OPENAI_BASE_URL','ROBO_EMBED_API_BASE') |
+      Where-Object{[String]::IsNullOrWhiteSpace([string]$values[$_])})
+    if($blankBases.Count -gt 0){
+      Warn ('납품판인데 비어 있는 AI 주소 ' + $blankBases.Count + '개(' +
+            ($blankBases -join ', ') + '). 이름마다 읽는 코드가 달라 **서로 메워 주지 ' +
+            '않는다** — 비면 본점(api.openai.com)으로 가거나 그 자리에서 죽는다')
+    }
+    # ②와 ① 모델 갈래가 어느 주소를 가리키나 — 분석기 yaml 을 직접 읽는다
+    # ⚠ `$sources` 는 Build-DesktopRelease 안에서만 생긴다. 이 함수는 `robo env`
+    #   에서도 돌므로 거기선 비어 있고, 그러면 아래 검사가 **조용히 아무것도 안
+    #   본다**(처음에 그렇게 틀렸다). 저장소 자리는 Analyzer-Root 로 찾는다.
+    $cfgRoot=Join-Path (Analyzer-Root) 'llm\configs'
+    foreach($cfgName in @('ROBO_LLM_CONFIG','ROBO_SEARCH_LLM_CONFIG')){
+      $cfg=([string]$values[$cfgName]).Trim()
+      if(-not $cfg){ continue }
+      $cfgPath=Join-Path $cfgRoot "$cfg.yaml"
+      if(-not (Test-Path -LiteralPath $cfgPath)){
+        Warn ("$cfgName=$cfg — 그 갈래 파일이 분석기에 없다($cfg.yaml). " +
+              '이름을 잘못 적으면 분석기가 기본값으로 떨어진다')
+        continue
+      }
+      $cfgBase=@(Select-String -LiteralPath $cfgPath -Pattern '^api_base:\s*(\S+)' |
+        ForEach-Object{$_.Matches[0].Groups[1].Value})[0]
+      if($cfgBase -and ($bakedBases -notcontains $cfgBase)){
+        Warn ("$cfgName=$cfg 의 api_base 가 **$cfgBase** 다 — 구운 AI 주소(" +
+              ($bakedBases -join ' · ') + ')와 다르다. 오프라인 사내망에서 닿지 ' +
+              '않으면 그 기능만 조용히 죽는다')
+      }
+    }
+  }
+
   # AUTH_ 는 평평한 `required` 로 다 표현할 수 없다 — **켰을 때만** 필요한 값이 있다.
   #
   # AUTH_ENFORCE=true 인데 AUTH_JWT_SECRET 이 비면 앱이 죽지 않는다. 임시 비밀로
