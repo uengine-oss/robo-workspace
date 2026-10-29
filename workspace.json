@@ -71,7 +71,7 @@
       "id": "architect",
       "path": "robo-architect",
       "url": "https://github.com/uengine-oss/robo-architect.git",
-      "branch": "enterprise-custom-p",
+      "branch": "feat/ontological-data-fabric-lite",
       "profiles": [
         "architect-web",
         "architect-electron"
