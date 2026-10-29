@@ -248,3 +248,39 @@ lite 는 **main 에서 뗀 가지**다. enterprise(`enterprise-custom-p`)와 섞
 ⚠ enterprise 에서 고침을 가져올 때는 **그 파일이 lite 에 있는지 먼저 본다.**
   없는 기능의 고침을 체리픽하면 **반쪽 기능이 들어온다.**
 ```
+
+### 이 가지에 남아 있는 **enterprise 시대 파일** — 일부러 둔 것들
+
+```text
+docker/mindsdb-trimmed/   한 파일(Dockerfile). `robo.ps1` 주석이 **"되돌릴 때
+                          필요한 근거"** 로 남긴다고 적어 뒀다. 실행하는 코드는
+                          없다(주석 참조뿐). 지우면 그 결정과 어긋난다
+specs/ 22파일              workspace 도구 자신의 이력이다. **기록은 지우지 않는다**
+tests/ 11파일              ⚠ **lite 에서 그대로 통하지 않는다** — 아래
+release-environment.json   공용 계약이다. lite 도 **쓴다**(환경 스냅샷) — 둔다
+scripts/sbom-*.py          lite 도 **쓴다**(`robo-lite.ps1` 이 부른다) — 둔다
+⇒ 지운 것은 `DELIVERY-POSCO.md` 하나다 — `enterprise-delivery-p` 가지 설명이고
+  lite 와 상관이 없으며 내용도 낡았다(열린 PR #1 을 전제한다)
+```
+
+### ⚠ workspace 테스트는 lite 에서 **그대로 통하지 않는다**
+
+```text
+`tests/environment-contract.ps1` 은 architect 쪽에서 이런 파일을 **요구한다** —
+  desktop\runtime\compose.central-db.yml   ← lite 에 **없다**
+  desktop\runtime\compose.remote-graph.yml ← lite 에 **없다**
+  그리고 매니페스트 schemaVersion 이 앱의 값과 같은지 본다(lite 는 **3**)
+⇒ 이 가지에서 그 테스트를 돌리면 **실패한다.** 그것이 정상이다 —
+  그 검사들은 **중앙 모드가 있는 판**을 위한 것이다
+실측 (2026-10-29 · lite-p 에서 돌렸다 — 적어 두고 확인했다)
+  environment-catalog   **통과** (194 template keys)  ← 이건 lite 에서도 유효하다
+  environment-contract  **실패** — 이 문구로 선다:
+      Electron release input is missing: desktop\runtime\compose.central-db.yml
+  ⇒ 이 문구가 나오면 **고장이 아니다.** 다른 문구로 실패하면 그건 봐야 한다
+⇒ lite 에서 믿을 수 있는 검사는 **굽기 자신**이다. `robo-lite.ps1` 이
+  매니페스트와 이미지 집합을 **양방향으로** 대조하고(공용에 없는 검사다),
+  환경 계약 검사(`Check-ReleaseEnvironment`)도 그대로 돈다
+⚠ **"테스트가 빨간 채로 방치" 를 만들지 않으려고 여기 적는다.** 2026-10-29 에
+  enterprise 쪽에서 바로 그 일을 겪었다 — mindsdb 를 걷은 뒤 계약 테스트가
+  **5일 넘게** 빨간 채였고 아무도 몰랐다(부르는 자동 경로가 없었다)
+```

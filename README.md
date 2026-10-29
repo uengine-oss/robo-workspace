@@ -1,5 +1,34 @@
 # Robo Workspace
 
+> ## ⚠ 이 가지는 **lite 줄기**다 (`lite-p`)
+>
+> **먼저 [`LITE.md`](LITE.md) 를 읽는다.** lite 가 enterprise 와 무엇이 다른지,
+> 어떻게 굽는지, 개인 사용자가 어떻게 깔고 띄우는지가 그 문서 하나에 있다.
+>
+> ```text
+> 굽는 명령   .\robo-lite.cmd          ← 공용 `robo.cmd release` 가 아니다
+> 서비스      **일곱** (graph-db · graph-bolt · fabric · catalog · analyzer ·
+>             parser · gateway). authority · pdf2bpmn · wireframe 이 **없다**
+> 로그인      **없다** — 앱을 열면 바로 화면이다
+> 외부 LLM    **쓴다** — 개인 사용자도 AI 키가 필요하다
+> 저장소      DB 를 **자기 PC 에** 띄운다(bundled). 중앙 서버가 필요 없다
+> ```
+>
+> ⚠ **아래 본문은 공용 문서다** — enterprise 가지와 같은 파일이고, 거기 맞춰
+> 쓰여 있다. lite 와 어긋나는 대목이 있다:
+>
+> ```text
+> `Neo4j` · `MindsDB` 라고 적힌 곳   둘 다 **지금은 쓰지 않는다**. 그래프 저장소는
+>                                   **Ontological DB** 이고, 데이터 소스 연합은
+>                                   그 안의 virtual fabric 이 맡는다(2026-10-27)
+>                                   ⚠ 이 낡음은 **두 가지 모두**의 문제라서
+>                                     lite 에서만 고치지 않는다 — 고치면 갈린다
+> `robo.cmd release architect-electron`   lite 에서는 **쓰지 않는다**(§LITE.md 1)
+> `tests\environment-contract.ps1`        lite 에서는 **통하지 않는다**.
+>                                   architect 쪽 `compose.central-db.yml` 등을
+>                                   요구하는데 lite 에는 그 파일이 **없다**
+> ```
+
 Robo Workspace는 여러 개로 나뉜 Robo Git 저장소를 **한 번에 준비하고 실행하고
 종료하는 Windows용 관리 도구**입니다.
 
