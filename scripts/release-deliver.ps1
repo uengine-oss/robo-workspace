@@ -286,7 +286,9 @@ Info ''
 Info '    (가) 웹 — 저장소 Releases → Draft a new release → 태그를 릴리스 id 로'
 Info '         만들고 그 폴더의 파일을 끌어다 놓는다. 자산 한 파일 2 GiB 미만'
 Info '    (나) gh  — 이미 깔려 있다(2.103.3). ⚠ gh auth login 은 사람이 직접 한다'
-Info "         gh release create $ReleaseId `"$assetDir\*`" --repo uengine-oss/robo-workspace ``"
+Info "         gh release create $ReleaseId (Get-ChildItem `"$assetDir`").FullName ``"
+Info '           --repo uengine-oss/robo-workspace ``'
+Info '         ⚠ 별표를 따옴표 안에 적으면 글자 그대로 넘어간다 — 풀어서 넘긴다'
 Info "           --title `"$ReleaseId`" --notes-file `"$(Join-Path $out 'README-전달.md')`""
 Write-Host ''
 Warn 'uengine-oss/robo-workspace 는 **공개 저장소**다 — 올리면 누구나 받는다.'
