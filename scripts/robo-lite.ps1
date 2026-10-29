@@ -25,6 +25,19 @@ param([switch]$SkipSbom)
 
 $ErrorActionPreference = 'Stop'
 
+# ⚠⚠ **dot-source 가 내 변수를 덮어쓴다.** 아래에서 `robo.ps1` 을 읽어 들이면
+#    그 파일의 `param()` 이 **내 범위에** 들어온다 —
+#      $Command $Profile $Variant $ServiceId $Build $SkipBuild $SkipFrontend
+#      $NoElectron $ForcePorts $SkipSbom
+#    둘이 물렸다(2026-10-29 실측):
+#      · `$Variant` 에는 `[ValidateSet('unpacked','installer')]` 가 붙어 있고,
+#        PowerShell 은 이름의 대소문자를 **안 가린다**. 그래서 내 `$variant='lite'`
+#        가 그 검사에 걸려 죽었다 — "값 lite이(가) … 올바른 값이 아니므로"
+#      · `$SkipSbom` 은 **조용히** 덮어써진다. `-SkipSbom` 을 줘도 아무 말 없이
+#        무시됐다. 터지는 충돌보다 이쪽이 더 나쁘다
+#    ⇒ 내 인자는 **먼저** 다른 이름으로 챙기고, 내 변수에는 `lite` 를 붙인다.
+$liteSkipSbom = [bool]$SkipSbom
+
 # ── 공용 스크립트에서 함수·설정을 물려받는다 ─────────────────────────
 #    `help architect-electron` 으로 부르면 **아무 일도 하지 않고** 초기화만 한다
 #    (tests/environment-contract.ps1 이 같은 방법을 쓴다).
@@ -85,8 +98,8 @@ $sourceDigest = if ($otherCommits) {
 } else { '000000' }
 
 $posture = Get-ReleaseAuthPosture (Read-EnvironmentFile $WorkspaceEnvPath)
-$variant = [string]$posture.variant
-if ([String]::IsNullOrWhiteSpace($variant)) {
+$liteVariant = [string]$posture.variant
+if ([String]::IsNullOrWhiteSpace($liteVariant)) {
   throw ("lite.variant_required: `.env` 에 ROBO_RELEASE_VARIANT 를 주어라(예: lite). " +
          "비우면 enterprise 판과 **같은 릴리스 id** 가 나와 폴더와 도커 태그를 덮어쓴다")
 }
@@ -94,7 +107,7 @@ $channelTag = if ($posture.channel -eq 'delivery') { 'del' } else { 'int' }
 $providerTag = if ($posture.authProvider -eq 'swp') { 'swp' } else { 'none' }
 $releaseId = '{0}-w{1}-a{2}-s{3}-r{4}-{5}-{6}' -f $desktopPackage.version,
   $commits.workspace.Substring(0, 8), $commits.architect.Substring(0, 8), $sourceDigest,
-  $channelTag, $providerTag, $variant
+  $channelTag, $providerTag, $liteVariant
 Info "release id: $releaseId"
 
 $images = [ordered]@{}
@@ -197,7 +210,7 @@ $manifest = Get-Content -Raw -Encoding UTF8 $templatePath | ConvertFrom-Json
 $manifest.releaseId = $releaseId
 $manifest.imageArchiveSha256 = $archiveSha
 $manifest.releaseChannel = [string]$posture.channel
-$manifest.releaseVariant = $variant
+$manifest.releaseVariant = $liteVariant
 # ⚠ lite 에는 인증이 **없다.** 공용 판처럼 자세를 싣지만 값은 그 사실대로 둔다 —
 #   여기에 true 를 넣으면 "로그인이 있는 판" 으로 **거짓 기록**이 된다.
 $manifest | Add-Member -NotePropertyName authEnforced -NotePropertyValue $false -Force
@@ -236,7 +249,7 @@ Copy-Item -LiteralPath $imageArchive -Destination $releaseArchive -Force
 ) -join "`n" | ForEach-Object { Write-Utf8NoBom (Join-Path $releaseRoot 'SHA256SUMS') ($_ + "`n") }
 
 # ── 11. 구성품 목록(SBOM) ────────────────────────────────────────────
-if ($SkipSbom) {
+if ($liteSkipSbom) {
   Warn 'SBOM 을 건너뛴다(-SkipSbom). 남에게 주기 전에 반드시 뽑는다:'
   Warn "  python scripts\sbom-release.py `"$releaseRoot`""
 } else {
