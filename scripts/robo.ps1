@@ -1013,7 +1013,19 @@ function Build-DesktopRelease {
     #   `filelock<4.0`) 해결기가 litellm 을 1.103.9 로 내리는데, OSV 로 재니
     #   **1.103.9 와 1.106.4 둘 다 0건**이라 보안상 잃는 것이 없다.
     #   CI 가 지은 이미지를 직접 재서 **0C 0H** 를 확인했다(커밋 4ea4900).
-    pdf2bpmn = 'ghcr.io/uengine-oss/process-gpt-bpmn-extractor:4ea4900'
+    # ⚠ 2026-10-29 에 **또 올라왔다 — 0 에서 고위험 1 로.** `brotli 1.1.0-2build2`
+    #   (CVE-2026-111497 · **CISA KEV** — 실제로 악용되는 목록)다. 우리가 깐 것이
+    #   아니라 **베이스(ubuntu:24.04)에 있던 것**이라 꾸러미를 더 깔아도 안 걷힌다 —
+    #   같은 레이어에서 `apt-get upgrade` 해야 한다. 같은 날 parser·gateway 에도
+    #   똑같이 떠서 셋을 함께 고쳤다. CI 가 지은 이미지를 직접 재서 **0C 0H** 확인
+    #   (커밋 735d135).
+    #
+    # ⚠ **이 태그는 손으로 올리지 않는다.** 커밋을 가지에 푸시한 뒤 GitHub Actions
+    #   의 "Publish Docker image to GHCR" 를 **수동 실행**(workflow_dispatch)한다 —
+    #   자동 빌드는 `main` 에서만 돌고 납품 가지는 `enterprise-custom-p` 다.
+    #   태그 규칙이 `type=sha,format=short` 라 **커밋 해시가 곧 태그**가 된다.
+    #   손으로 지어 올리면 "이 태그 = 그 커밋을 CI 가 지은 결과" 가 깨진다.
+    pdf2bpmn = 'ghcr.io/uengine-oss/process-gpt-bpmn-extractor:735d135'
     # open-pencil 와이어프레임 렌더러. **없으면 와이어프레임이 조용히 빈다** —
     # `dev.sh` 는 Bun 으로 띄우지만 설치본에는 없었다. 부재가 오류로 안 보이고
     # (인제스천 경로가 `on_event=None`), 증상은 한참 뒤 Figma 싱크에서
