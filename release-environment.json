@@ -91,11 +91,11 @@
         "MINDSDB_API_PORT"
       ],
       "prefixes": [
-        "MINDSDB_",
         "DATA_FABRIC_"
       ],
       "names": [
-        "OPENAI_API_KEY"
+        "OPENAI_API_KEY",
+        "ROBO_DATASOURCE_REPLACE_LOCALHOST"
       ]
     },
     "parser": {

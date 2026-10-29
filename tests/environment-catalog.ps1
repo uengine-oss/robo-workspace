@@ -163,7 +163,7 @@ $criticalPackaged = [ordered]@{
     'LLM_API_BASE', 'LLM_MAX_COMPLETION_TOKENS', 'EMBEDDING_MODEL',
     'FK_INFERENCE_ENABLED', 'METADATA_TIMEOUT_REQUEST'
   )
-  fabric = @('DATA_FABRIC_QUERY_TIMEOUT_SECONDS', 'MINDSDB_REPLACE_LOCALHOST')
+  fabric = @('DATA_FABRIC_QUERY_TIMEOUT_SECONDS', 'ROBO_DATASOURCE_REPLACE_LOCALHOST')
   parser = @('PARSER_REPAIR_AGENT_ENABLED', 'PARSER_REPAIR_AGENT_TIMEOUT_SECONDS')
   # Without these the container silently reaches for api.openai.com; on a closed
   # network that does not surface as an error at all -- Architect falls back and

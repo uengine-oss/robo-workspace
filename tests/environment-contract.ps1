@@ -144,10 +144,14 @@ try{
   if($parserEnv-notmatch'(?m)^PARSER_REPAIR_AGENT_ENABLED=false$'){
     throw 'Parser runtime environment mapping is incomplete'
   }
-  if($fabricEnv-match'(?m)^MINDSDB_(URL|HOST|API_PORT)='){
-    throw 'Fabric packaged environment captured app-owned MindsDB topology'
+  # ⚠ 2026-10-27 에 mindsdb 를 걷었다. 이제 **어떤 MINDSDB_ 이름도** 담겨선 안 된다.
+  #    fixture 에는 MINDSDB_URL 을 **일부러 남겨 뒀다** — 흘러 들어오면 여기서 걸린다.
+  if($fabricEnv-match'(?m)^MINDSDB_'){
+    throw 'Fabric packaged environment captured a MindsDB name (removed 2026-10-27)'
   }
-  if($fabricEnv-notmatch'(?m)^MINDSDB_REPLACE_LOCALHOST=host\.docker\.internal$'-or
+  # ⚠ **코드가 읽는 이름**이어야 한다. 전에는 죽은 이름(MINDSDB_REPLACE_LOCALHOST)을
+  #    검사해서, 담겨 나가도 아무 효과가 없는 것을 "맞다" 고 말하고 있었다.
+  if($fabricEnv-notmatch'(?m)^ROBO_DATASOURCE_REPLACE_LOCALHOST=host\.docker\.internal$'-or
      $fabricEnv-notmatch'(?m)^DATA_FABRIC_QUERY_TIMEOUT_SECONDS=30$'){
     throw 'Fabric runtime environment mapping is incomplete'
   }
@@ -187,16 +191,18 @@ try{
     throw ("Packaged runtime manifest schema disagrees with the app: " +
            "template=$($manifestTemplate.schemaVersion) app=$expectedManifestSchema")
   }
-  if($manifestTemplate.images.mindsdb-ne'mindsdb/mindsdb:v26.1.0'-or
-     $manifestTemplate.imageIds.mindsdb-notmatch'^sha256:IMAGE_ID_MINDSDB$'){
-    throw 'Packaged runtime manifest must pin the app-owned MindsDB image'
+  # ⚠ 뒤집었다(2026-10-29) — mindsdb 는 걷혔으므로 **없어야 참**이다.
+  if($null-ne$manifestTemplate.images.mindsdb-or$null-ne$manifestTemplate.imageIds.mindsdb){
+    throw 'Packaged runtime manifest still pins MindsDB (removed 2026-10-27)'
   }
   if($manifestTemplate.images.authority-notmatch'^uengine/robo-authority:'-or
      $manifestTemplate.imageIds.authority-notmatch'^sha256:IMAGE_ID_AUTHORITY$'){
     throw 'Packaged runtime manifest must declare the central authority image'
   }
   $centralCompose=Get-Content -LiteralPath(Join-Path $architectRoot 'desktop\runtime\compose.central-db.yml')-Raw
-  if($centralCompose-notmatch'(?m)^  authority:$'-or
+  # ⚠ `\r?$` 가 있어야 한다 — 저장소 파일이 CRLF 라서 `$` 만으로는 **절대 안 맞는다**.
+  #    그래서 authority 가 있는데도 "없다" 고 던지고 있었다(2026-10-29 실측).
+  if($centralCompose-notmatch'(?m)^  authority:\r?$'-or
      $centralCompose-notmatch'ROBO_IMAGE_AUTHORITY'-or
      $centralCompose-notmatch'central-authority\.env'){
     throw 'Central server compose must run the packaged authority image with a server-owned environment file'
@@ -213,10 +219,17 @@ try{
       throw "Compose does not load the scoped environment: $scope"
     }
   }
-  if($composeSource-notmatch'(?m)^  mindsdb:$'-or
-     $composeSource-notmatch'MINDSDB_URL: http://mindsdb:47334'-or
-     $composeSource-notmatch'mindsdb_data:/mindsdb/var'){
-    throw 'Compose does not own the MindsDB datasource runtime'
+  # ⚠ 뒤집었다(2026-10-29). 전에는 compose 가 mindsdb 를 **갖고 있어야** 참이었고,
+  #    10-27 에 걷은 뒤로 이 테스트는 **빨간불이었다**(아무도 안 돌렸다).
+  #    데이터 소스 연합은 이제 중앙 DB(Ontological)의 virtual fabric 이 한다.
+  # ⚠ **선언만** 본다. compose 에는 "왜 걷었는지" 주석이 남아 있고, 그 주석은
+  #    다음 사람에게 필요하다. 게다가 `-match` 는 **대소문자를 안 가려서**
+  #    주석의 `mindsdb_data:` 가 `MINDSDB_` 에 걸린다 ⇒ 환경 키는 `-cmatch`.
+  if($composeSource-match'(?m)^  mindsdb:\r?$'-or
+     $composeSource-cmatch'(?m)^\s+MINDSDB_\w+:'-or
+     $composeSource-match'(?m)^\s+mindsdb_data:'-or
+     $composeSource-match'mindsdb_data:/'){
+    throw 'Compose still declares MindsDB (removed 2026-10-27)'
   }
   $stackSource=Get-Content -LiteralPath(Join-Path $architectRoot 'desktop\src\main\docker-stack.ts')-Raw
   if($stackSource-notmatch'ensureEnvironmentSnapshots'-or

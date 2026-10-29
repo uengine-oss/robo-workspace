@@ -58,7 +58,9 @@ runtime manifest에 기록합니다.
 - `ROBO_DATA_DIR`
 - `ROBO_ANTLR_URL`, `ROBO_ANALYZER_URL`, `ROBO_CATALOG_URL`,
   `ROBO_DATA_FABRIC_URL`, `ROBO_ARCHITECT_URL`
-- `MINDSDB_URL`, `MINDSDB_HOST`, `MINDSDB_API_PORT`
+- `MINDSDB_*` (2026-10-27 에 걷었다 — 컨테이너가 없다. 데이터 소스 연합은
+  중앙 DB 의 virtual fabric 이 한다. 원천 주소의 `localhost` 치환은
+  **`ROBO_DATASOURCE_REPLACE_LOCALHOST`** 로 설치판 env 에 담긴다)
 - Architect API port, Gateway/MCP URL
 
 `ROBO_AUTHORITY_URL`은 DB central과 같은 사내망 DB 서버에서 실행하는 계정·프로젝트
