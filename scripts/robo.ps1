@@ -201,6 +201,46 @@ function Get-ReleaseEnvironmentConfigurationErrors([string]$Path=$WorkspaceEnvPa
     }
   }
 
+  # provider 를 swp 로 **적기만 하면** 통과했다 — 2026-10-29 에 재 보니 이 파일
+  # 안에 "SWP" 가 **주석 한 줄뿐**이었다. 그래서 SWP 등록값 열 개가 전부 비어도
+  # "납품판" 이 구워지고, 증상은 굽기가 아니라 **현장 첫 로그인**에서 나온다.
+  #
+  # ⚠ 그렇다고 "비었으면 거절" 로 뭉개면 틀린다. 코드를 읽어 보면
+  #   (`api/features/auth/config.py` 의 `SwpSettings.from_env`) **열 개 모두
+  #   기본값이 있다.** 그래서 거절할 것과 경고할 것을 가른다 —
+  #
+  #     AUTH_CALLBACK_ALLOWLIST  기본이 **빈 목록**이고, 비면 loopback 만
+  #                              허용되어 **현장 콜백이 거부된다**     → **거절**
+  #     SWP_SSO_*                기본값이 POSCO 실제 주소다 — 비어도 돌긴 한다 → 경고
+  #     SWP_IDX_*                기본 0·1·8·9·4. 칸 순서가 다르면 **엉뚱한 칸을
+  #                              사번으로 읽고도 오류가 안 난다**        → 경고
+  #
+  # ⓘ `AUTH_CALLBACK_ALLOWLIST` 는 이름에 `SWP_` 가 붙지 않는다. 양식에
+  #   `SWP_SSO_CALLBACK_ALLOWLIST` 로 잘못 적혀 있던 것을 2026-10-26 에 고쳤고,
+  #   그 틀린 이름은 **아무도 읽지 않았다**.
+  if([string]$posture.authProvider -in @('swp','posco')){
+    if([String]::IsNullOrWhiteSpace([string]$values['AUTH_CALLBACK_ALLOWLIST'])){
+      $errors+=("AUTH_PROVIDER=swp but AUTH_CALLBACK_ALLOWLIST is empty: " +
+                "비워 두면 loopback 만 허용되어 현장 콜백이 거부된다. " +
+                "SWP 콜백 주소를 적어라 — 이름에 SWP_ 가 붙지 않는다")
+    }
+    $swpUrlNames=@('SWP_SSO_REDIRECT_URL','SWP_SSO_VALID_CHECK_URL','SWP_SSO_LOGIN_URL')
+    $swpUrlBlank=@($swpUrlNames|Where-Object{[String]::IsNullOrWhiteSpace([string]$values[$_])})
+    if($swpUrlBlank.Count -gt 0){
+      Warn ('AUTH_PROVIDER=swp — 비어 있는 SWP 주소 ' + $swpUrlBlank.Count + '개(' +
+            ($swpUrlBlank -join ', ') + '). 코드의 기본값(POSCO 실제 주소)으로 돈다 — ' +
+            'SWP 등록값을 받았으면 적어라')
+    }
+    $swpIdxNames=@('SWP_IDX_ID','SWP_IDX_EMPNO','SWP_IDX_DISPLAYNAME','SWP_IDX_MAIL','SWP_IDX_DEPT')
+    $swpIdxBlank=@($swpIdxNames|Where-Object{[String]::IsNullOrWhiteSpace([string]$values[$_])})
+    if($swpIdxBlank.Count -gt 0){
+      Warn ('AUTH_PROVIDER=swp — 비어 있는 칸 번호 ' + $swpIdxBlank.Count + '개. ' +
+            '기본 0·1·8·9·4 를 쓴다. 칸 순서가 다르면 엉뚱한 칸을 사번으로 읽고도 ' +
+            '오류가 나지 않는다 — 첫 연동에 SWP_SSO_LOG_RAW=1 로 원문을 찍어 ' +
+            '칸 순서를 눈으로 확인하라')
+    }
+  }
+
   # AUTH_ 는 평평한 `required` 로 다 표현할 수 없다 — **켰을 때만** 필요한 값이 있다.
   #
   # AUTH_ENFORCE=true 인데 AUTH_JWT_SECRET 이 비면 앱이 죽지 않는다. 임시 비밀로

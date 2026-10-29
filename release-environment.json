@@ -25,7 +25,9 @@
     "AUTH_JWT_SECRET",
     "AUTH_ROLE_SECRET",
     "AUTH_DEV_LOGIN_PASSWORD",
-    "AUTH_DEV_LOGIN_ACCOUNTS"
+    "AUTH_DEV_LOGIN_ACCOUNTS",
+    "PGPT_API_KEY",
+    "PGPT_EMBEDDING_API_KEY"
   ],
   "placeholderValues": [
     "notused",
