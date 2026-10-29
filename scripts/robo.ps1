@@ -119,11 +119,15 @@ function Get-ReleaseAuthPosture([hashtable]$Values) {
   if([String]::IsNullOrWhiteSpace($channel)){$channel='delivery'}
   $provider=([string]$Values['AUTH_PROVIDER']).Trim().ToLowerInvariant()
   if([String]::IsNullOrWhiteSpace($provider)){$provider='none'}
+  # 판 갈래(lite 따위). 비면 없는 것이고, 있으면 **릴리스 id 꼬리**에 붙어
+  # 폴더·설치파일·이미지 태그가 한꺼번에 구별된다.
+  $variant=([string]$Values['ROBO_RELEASE_VARIANT']).Trim().ToLowerInvariant()
   return [ordered]@{
     channel      = $channel
     authEnforced = ([string]$Values['AUTH_ENFORCE']).Trim().ToLowerInvariant() -in @('1','true','yes','on')
     authProvider = $provider
     providerIsNone = $provider -in @('none','off','disabled')
+    variant      = $variant
   }
 }
 
@@ -218,6 +222,16 @@ function Get-ReleaseEnvironmentConfigurationErrors([string]$Path=$WorkspaceEnvPa
   # ⓘ `AUTH_CALLBACK_ALLOWLIST` 는 이름에 `SWP_` 가 붙지 않는다. 양식에
   #   `SWP_SSO_CALLBACK_ALLOWLIST` 로 잘못 적혀 있던 것을 2026-10-26 에 고쳤고,
   #   그 틀린 이름은 **아무도 읽지 않았다**.
+  # 갈래 이름은 **폴더 이름과 도커 태그**가 된다. 둘이 받는 글자가 다르므로
+  # 좁은 쪽(도커 태그)에 맞춘다 — 소문자·숫자만, 열두 자까지.
+  # 비워 두면 지금까지와 **완전히 같은** id 가 나온다(기존 판과 섞이지 않는다).
+  $variant=[string]$posture.variant
+  if(-not [String]::IsNullOrWhiteSpace($variant)){
+    if($variant-notmatch'^[a-z0-9]{1,12}$'){
+      $errors+=("ROBO_RELEASE_VARIANT must be 1-12 lowercase letters or digits: " +
+                "'$variant' — 이 값은 폴더 이름과 도커 태그가 된다")
+    }
+  }
   if([string]$posture.authProvider -in @('swp','posco')){
     if([String]::IsNullOrWhiteSpace([string]$values['AUTH_CALLBACK_ALLOWLIST'])){
       $errors+=("AUTH_PROVIDER=swp but AUTH_CALLBACK_ALLOWLIST is empty: " +
@@ -989,6 +1003,11 @@ function Build-DesktopRelease {
   $releaseId = '{0}-w{1}-a{2}-s{3}-r{4}-{5}' -f $desktopPackage.version,
     $commits.workspace.Substring(0, 8), $commits.architect.Substring(0, 8), $sourceDigest,
     $channelTag, $providerTag
+  # 갈래가 있으면 **꼬리에** 붙인다. 자리로 파싱하는 곳이 없어서(전수 확인)
+  # 꼬리를 늘려도 안전하고, 사람이 폴더 목록에서 바로 알아본다.
+  if(-not [String]::IsNullOrWhiteSpace([string]$releasePosture.variant)){
+    $releaseId = '{0}-{1}' -f $releaseId, [string]$releasePosture.variant
+  }
   $runtimeRoot = Join-Path $sources.architect 'desktop\resources\runtime'
   $releaseRoot = Join-Path $WorkspaceRoot "_releases\$releaseId"
   $imageArchive = Join-Path $runtimeRoot 'robo-images.tar'
@@ -1214,8 +1233,14 @@ function Build-DesktopRelease {
   $manifest.releaseChannel = [string]$posture.channel
   $manifest.authEnforced = [bool]$posture.authEnforced
   $manifest.authProvider = [string]$posture.authProvider
+  # 갈래도 매니페스트에 남긴다 — 설치본이 **자기가 어느 갈래인지** 말할 수 있어야
+  # 한다. id 만 보고 짐작하게 두면 폴더 이름을 바꾼 순간 근거가 사라진다.
+  $manifest | Add-Member -NotePropertyName releaseVariant `
+    -NotePropertyValue ([string]$posture.variant) -Force
   Info ("release channel: $($posture.channel) · auth enforced: " +
-        "$($posture.authEnforced) · provider: $($posture.authProvider)")
+        "$($posture.authEnforced) · provider: $($posture.authProvider)" +
+        $(if([String]::IsNullOrWhiteSpace([string]$posture.variant)){''}
+          else{" · variant: $($posture.variant)"}))
   foreach ($name in $images.Keys) {
     $manifest.images.$name = $images[$name]
     $manifest.imageIds.$name = Get-DockerImageId $images[$name]
