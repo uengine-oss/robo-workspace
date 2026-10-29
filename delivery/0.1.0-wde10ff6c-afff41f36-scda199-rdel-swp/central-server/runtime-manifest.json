@@ -1,0 +1,93 @@
+{
+  "schemaVersion": 5,
+  "releaseId": "0.1.0-wde10ff6c-afff41f36-scda199-rdel-swp",
+  "releaseChannel": "delivery",
+  "authEnforced": true,
+  "authProvider": "swp",
+  "composeFile": "compose.yml",
+  "imageArchive": "robo-images.tar",
+  "imageArchiveSha256": "86edd5521ecd94c27c523973e6ea395c9337920a0baf9cdeeb0b5848107d1c3f",
+  "images": {
+    "graphDb": "uengine/ontological-db:0.1.0-wde10ff6c-afff41f36-scda199-rdel-swp",
+    "graphBolt": "uengine/ontological-bolt:0.1.0-wde10ff6c-afff41f36-scda199-rdel-swp",
+    "authority": "uengine/robo-authority:0.1.0-wde10ff6c-afff41f36-scda199-rdel-swp",
+    "analyzer": "uengine/robo-analyzer:0.1.0-wde10ff6c-afff41f36-scda199-rdel-swp",
+    "catalog": "uengine/robo-data-catalog:0.1.0-wde10ff6c-afff41f36-scda199-rdel-swp",
+    "fabric": "uengine/robo-data-fabric:0.1.0-wde10ff6c-afff41f36-scda199-rdel-swp",
+    "parser": "uengine/robo-antlr-parser:0.1.0-wde10ff6c-afff41f36-scda199-rdel-swp",
+    "gateway": "uengine/robo-api-gateway:0.1.0-wde10ff6c-afff41f36-scda199-rdel-swp",
+    "pdf2bpmn": "ghcr.io/uengine-oss/process-gpt-bpmn-extractor:735d135",
+    "wireframe": "uengine/open-pencil:0.1.0-wde10ff6c-afff41f36-scda199-rdel-swp"
+  },
+  "imageIds": {
+    "graphDb": "sha256:20baf06add4ea20ac83cef74819d6a6564e935fa9c9610cc9e5ea73fd5b77427",
+    "graphBolt": "sha256:251761c7dcba307b94eb132603fe3b4ed867080bcb32e86b761b6a921429fa00",
+    "authority": "sha256:9eac82a05ef77dfa57f4a2fd2ec4e5f1bf58b490f2a50a254760501d282966f7",
+    "analyzer": "sha256:e7aff01038ef23dcbf0c4195112b37fdb6bcba94f91f6aedc6314c1e681b1762",
+    "catalog": "sha256:641a039d09c06f4611ef400081af4091efbbd81c1800f7a5322a1aeab7d721ae",
+    "fabric": "sha256:f708332351c756029e8386d4a28c6cea826a59b5b360e3a8b1191204bac267c3",
+    "parser": "sha256:614780febfc440a9cdb0383b3a161173816ce5338b18f290733d3149f265bc53",
+    "gateway": "sha256:12e2f0e5b80ba4c7216837fe756e958f1d715ed73378f10f94c19c5d18d53ac7",
+    "pdf2bpmn": "sha256:3b2833bddf232370e41ada20d35c84897db32b53fe545c4cb670d9a4babf1cdc",
+    "wireframe": "sha256:775b24fe569de001c1b76f4d116a2c187a9c8c2c4636d05cbb171a0790a54280"
+  },
+  "graphs": {
+    "user": "robo",
+    "design": "robo",
+    "analysis": "analyzer_run"
+  },
+  "architect": {
+    "python": "architect/python/python.exe",
+    "app": "architect/app",
+    "entrypoint": "api.main:app"
+  },
+  "environment": {
+    "analyzer": {
+      "file": "config/analyzer.env",
+      "sha256": "a1524e3631b61e04ca4528b2008e1cfd6c2947c391912cd8e9f8e1b12eef75cb"
+    },
+    "catalog": {
+      "file": "config/catalog.env",
+      "sha256": "b826f8b605b70c2c0f6c15d83cefa1ef48a24480258ed953ae8eb693d5690d1f"
+    },
+    "fabric": {
+      "file": "config/fabric.env",
+      "sha256": "804bd322813747ff7f767d10985760915ac1651da93c7a2a07eb4683132de691"
+    },
+    "parser": {
+      "file": "config/parser.env",
+      "sha256": "54c6e015384a557d086acc82e12fbe6123e5e09f8948340b2ad8666d531b58fa"
+    },
+    "gateway": {
+      "file": "config/gateway.env",
+      "sha256": "5a0b2f7773151596e03cd71fa6c613b055fe0f1a635f21a82e1dca888927268d"
+    },
+    "pdf2bpmn": {
+      "file": "config/pdf2bpmn.env",
+      "sha256": "1ed135c6de14ab6af852756419b2783b39d1ced355d15a62f8f3c628a043bdf8"
+    },
+    "architect": {
+      "file": "architect/app/.env",
+      "sha256": "7072cfbe253b39d805a931317a572c68b4c6000b50c7f249ed5e4a7d7643be2b"
+    }
+  },
+  "source": {
+    "workspace": "de10ff6c98bb7793eae9875a5104e981db9207c7",
+    "architect": "fff41f36fb5bab3f0c459a040def0c0e87630b8f",
+    "openPencil": "af190bbfdc6eddf427dfb3bec09a577197fba89f",
+    "analyzer": "914cd6a747d64c08c391dea976bc7bf1cfc5fc79",
+    "catalog": "8e7dfcddb70e1c4d57d642e4e44479eed4223ac2",
+    "fabric": "6ba3a17f6e70f6733bd01014477336a4ee4cda13",
+    "frontend": "a3d4fe1e0ca7f9204c2bc39f6bd9d4d92fbebef1",
+    "parser": "39e58bd64fef4808a30fe6afce079cd629d73fd8",
+    "gateway": "05e29bf651b0f919ee498321f51d33ee39a6eb85",
+    "ontological": "42bb77bae63d0b6e5fe1cad2b4ab6e2e4f2cbab0",
+    "templates": "339a555401f0326e7c5955c0d3a5e984a1874a0b"
+  },
+  "releaseVariant": "",
+  "credentialNames": [
+    "AUTH_JWT_SECRET",
+    "OPENAI_API_KEY",
+    "ROBO_LLM_API_KEY"
+  ]
+}
