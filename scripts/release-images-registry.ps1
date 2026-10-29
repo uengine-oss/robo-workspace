@@ -27,10 +27,12 @@
   받는 쪽 리눅스(DB 서버)는 이 스크립트가 필요 없다 — 아래가 찍어 주는
   `docker pull`·`docker tag` 두 줄짜리 묶음을 그대로 돌리면 된다(-Pull -Print).
 
-  ⚠ **아직 한 번도 통과시켜 보지 못한 단계가 하나 있다**: push·pull 을 거친 뒤
-    image ID 가 **그대로인지**. 태그는 포인터라 유지돼야 하지만, buildkit·
-    manifest list 가 끼면 달라질 수 있다. 이 스크립트는 pull 뒤에 **매니페스트와
-    대조하고 다르면 멈춘다** — 거기서 걸리면 tar 길로 돌아간다.
+  ✔ **push·pull 이 image ID 를 보존하는 것은 재 봤다**(2026-10-30, 로컬
+    registry:2 로 push → 로컬 삭제 → pull → 되태그). 그래도 이 스크립트는
+    pull 뒤에 **매니페스트와 대조하고 다르면 멈춘다** — 레지스트리 구현에
+    따라 달라질 수 있고, 어긋난 장으로 깔면 앱이 거절한다.
+  ⚠ ghcr 는 **비밀번호를 받지 않는다.** 토큰에 write:packages 가 있어야 하고,
+    사용자명은 GitHub 로그인 이름이다. `gh auth login` 기본 범위에는 없다.
 #>
 [CmdletBinding(DefaultParameterSetName = 'Push')]
 param(
