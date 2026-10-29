@@ -45,9 +45,14 @@ for _stream in (sys.stdout, sys.stderr):
     if hasattr(_stream, "reconfigure"):
         _stream.reconfigure(encoding="utf-8", errors="replace")
 
-OURS = ["ontological-db", "ontological-bolt", "robo-analyzer", "robo-antlr-parser",
-        "robo-api-gateway", "robo-authority", "robo-data-catalog",
-        "robo-data-fabric", "open-pencil"]
+# ⚠ 대상은 **매니페스트에서** 끌어온다 — 리터럴 목록을 두지 않는다.
+#
+# 예전에는 enterprise 이미지 아홉이 여기 박혀 있었다. 그래서 lite 판(일곱)에
+# 돌리면 없는 `robo-authority`·`open-pencil` 을 당기려다 "Pull failed" 로 죽고
+# **SBOM 폴더가 아예 안 만들어졌다**(2026-10-29 실측). 매니페스트의 `images` 가
+# "그 릴리스에 무엇이 들었나" 의 권위다 — 거기서 읽으면 두 줄기 모두 맞고,
+# 서비스를 더하거나 뺄 때 이 파일을 또 고칠 일이 없다.
+OURS_PREFIX = "uengine/"
 
 
 # 두 형식을 **같이** 낸다 (2026-10-22).
@@ -162,21 +167,33 @@ def main(release_dir):
         print(trouble)
         return 1
     images = (json.load(io.open(manifest, encoding="utf-8")).get("images") or {})
-    tag = None
-    for name in OURS:
-        for v in images.values():
-            if isinstance(v, str) and ("/" + name + ":") in ("/" + v):
-                tag = v.split(":", 1)[1]
-    # 우리 이미지는 전부 같은 릴리스 태그를 쓴다 — 매니페스트에서 하나만 읽으면 된다.
-    if not tag:
-        tag = os.path.basename(release_dir.rstrip("\\/"))
+    if not images:
+        print("매니페스트에 images 가 없다: %s" % manifest)
+        return 1
 
-    targets = [("ours", n, "uengine/%s:%s" % (n, tag)) for n in OURS]
-    # 밖에서 당겨 오는 것은 `pdf2bpmn` 하나다. **남의 제품은 없다**(2026-10-27).
-    # 예전에는 여기 `mindsdb` 가 같이 있었고 그 하나가 취약점 231건이었다.
-    ref = images.get("pdf2bpmn")
-    if ref:
-        targets.append(("pulled", "pdf2bpmn", ref))
+    # 우리가 굽는 것(`uengine/…`)과 밖에서 당겨 오는 것을 **나눠서** 센다 —
+    # 색인이 그 둘을 따로 적는다. 남의 제품은 2026-10-27 에 없어졌다(mindsdb
+    # 하나가 취약점 231건이었다). 지금 당겨 오는 것은 `pdf2bpmn` 뿐이다.
+    # ⚠ 이름 규칙을 **가른다.** 파일 이름이 바뀌면 가이드·색인과 어긋난다.
+    #    우리 것    참조의 저장소 이름 → `ontological-db` · `robo-analyzer` …
+    #               (매니페스트 열쇠는 `graphDb` 꼴이라 쓰면 전부 바뀐다)
+    #    당겨 오는 것  **매니페스트 열쇠** → `pdf2bpmn`
+    #               (참조에서 뽑으면 `process-gpt-bpmn-extractor` 가 된다)
+    #    두 번 헛짚고 나서 이렇게 갈랐다(2026-10-29).
+    targets, seen = [], set()
+    for key, ref in images.items():
+        if not isinstance(ref, str) or not ref or ref in seen:
+            continue
+        seen.add(ref)
+        if ref.startswith(OURS_PREFIX):
+            targets.append(("ours", ref.rsplit("/", 1)[-1].split(":", 1)[0], ref))
+        else:
+            targets.append(("pulled", str(key), ref))
+    targets.sort(key=lambda t: (t[0] != "ours", t[1]))
+    print("대상 %d장 (우리 %d · 당겨 오는 %d)" % (
+        len(targets),
+        sum(1 for t in targets if t[0] == "ours"),
+        sum(1 for t in targets if t[0] == "pulled")))
 
     out_dir = os.path.join(release_dir, "sbom")
     os.makedirs(out_dir, exist_ok=True)

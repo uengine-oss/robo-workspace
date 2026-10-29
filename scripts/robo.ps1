@@ -213,15 +213,31 @@ function Get-ReleaseEnvironmentConfigurationErrors([string]$Path=$WorkspaceEnvPa
   #   (`api/features/auth/config.py` 의 `SwpSettings.from_env`) **열 개 모두
   #   기본값이 있다.** 그래서 거절할 것과 경고할 것을 가른다 —
   #
-  #     AUTH_CALLBACK_ALLOWLIST  기본이 **빈 목록**이고, 비면 loopback 만
-  #                              허용되어 **현장 콜백이 거부된다**     → **거절**
   #     SWP_SSO_*                기본값이 POSCO 실제 주소다 — 비어도 돌긴 한다 → 경고
   #     SWP_IDX_*                기본 0·1·8·9·4. 칸 순서가 다르면 **엉뚱한 칸을
   #                              사번으로 읽고도 오류가 안 난다**        → 경고
+  #     AUTH_CALLBACK_ALLOWLIST  ⚠ **거절하지 않는다** — 아래를 읽어라     → 경고
   #
-  # ⓘ `AUTH_CALLBACK_ALLOWLIST` 는 이름에 `SWP_` 가 붙지 않는다. 양식에
-  #   `SWP_SSO_CALLBACK_ALLOWLIST` 로 잘못 적혀 있던 것을 2026-10-26 에 고쳤고,
-  #   그 틀린 이름은 **아무도 읽지 않았다**.
+  # ⚠⚠ **이 값을 "비면 거절" 로 넣었다가 되돌렸다**(둘 다 2026-10-29).
+  #   근거로 삼은 것은 관리자 가이드의 한 줄이었는데, **코드를 읽으니 반대였다** —
+  #   `api/features/auth/config.py` 의 `is_allowed_callback()` 은
+  #     목록이 **비면**   loopback(localhost · 127.0.0.1 · ::1) **만** 허용
+  #     목록이 **있으면** origin 완전일치만, 그리고 **loopback 자동허용이 사라진다**
+  #       (`test_swp.py`: 목록이 있으면 "http://localhost:5173/cb" is **False**)
+  #   우리 제품은 각 PC 의 **Electron 앱**이고 백엔드가 `127.0.0.1:<동적 포트>` 다.
+  #   포트가 매번 바뀌니 목록에 적을 수가 없다 ⇒ 채우면 **로그인이 깨진다.**
+  #   그래서 거절은 운영자를 **틀린 설정으로 밀어붙인다.**
+  #
+  #   어느 쪽이 맞는지는 **SWP 가 어디로 리다이렉트하도록 등록돼 있는지**에 달렸다 —
+  #     앱 안(Electron)에서 돈다       → 콜백은 loopback → **비워 둔다**
+  #     중앙 authority(:59020)로 온다  → 그 origin 을 **적는다**
+  #   관문이 대신 정할 수 없다. 그래서 **말만 하고 지나간다.**
+  #   ⓘ msa-ez(v1.0.30) `docker-compose.yml` 에는 이 이름이 **없다** — 웹앱이라
+  #     자기 origin 으로 돌아오면 끝이기 때문이다. 거기 SWP 값 아홉은 우리
+  #     코드 기본값과 **전부 같았다**(그래서 SWP_* 는 비워도 된다).
+  #
+  # ⓘ 이름에 `SWP_` 가 붙지 않는다. 양식에 `SWP_SSO_CALLBACK_ALLOWLIST` 로 잘못
+  #   적혀 있던 것을 2026-10-26 에 고쳤고, 그 틀린 이름은 **아무도 읽지 않았다**.
   # 갈래 이름은 **폴더 이름과 도커 태그**가 된다. 둘이 받는 글자가 다르므로
   # 좁은 쪽(도커 태그)에 맞춘다 — 소문자·숫자만, 열두 자까지.
   # 비워 두면 지금까지와 **완전히 같은** id 가 나온다(기존 판과 섞이지 않는다).
@@ -234,9 +250,15 @@ function Get-ReleaseEnvironmentConfigurationErrors([string]$Path=$WorkspaceEnvPa
   }
   if([string]$posture.authProvider -in @('swp','posco')){
     if([String]::IsNullOrWhiteSpace([string]$values['AUTH_CALLBACK_ALLOWLIST'])){
-      $errors+=("AUTH_PROVIDER=swp but AUTH_CALLBACK_ALLOWLIST is empty: " +
-                "비워 두면 loopback 만 허용되어 현장 콜백이 거부된다. " +
-                "SWP 콜백 주소를 적어라 — 이름에 SWP_ 가 붙지 않는다")
+      Warn ('AUTH_PROVIDER=swp — AUTH_CALLBACK_ALLOWLIST 가 비었다. 콜백이 ' +
+            '**loopback 만** 허용된다(localhost · 127.0.0.1 · ::1). 앱 안에서 ' +
+            '로그인이 도는 구성이면 그것이 맞는 설정이다. 중앙 authority 로 ' +
+            '콜백이 돌아오면 그 origin 을 적어라 — ⚠ 적는 순간 loopback ' +
+            '자동허용이 사라진다(동적 포트는 적을 수 없다)')
+    } else {
+      Warn ('AUTH_PROVIDER=swp — AUTH_CALLBACK_ALLOWLIST 를 채웠다. ' +
+            '⚠ 그러면 **loopback 자동허용이 사라진다** — 앱 안에서 로그인이 도는 ' +
+            '구성이라면 로그인이 깨진다. 현장에서 한 번 밟아 확인하라')
     }
     $swpUrlNames=@('SWP_SSO_REDIRECT_URL','SWP_SSO_VALID_CHECK_URL','SWP_SSO_LOGIN_URL')
     $swpUrlBlank=@($swpUrlNames|Where-Object{[String]::IsNullOrWhiteSpace([string]$values[$_])})
