@@ -1222,6 +1222,22 @@ function Build-DesktopRelease {
   }
   Copy-Item -LiteralPath $envScript `
     -Destination (Join-Path $runtimeRoot 'robo-env.ps1') -Force
+  # 서버 쪽에도 같은 자리를 둔다 — DB 서버는 리눅스라 `robo-env.ps1` 을 못 돌린다.
+  # 이것이 없으면 관리자가 가이드의 셸을 단계마다 붙여넣게 되고, 그 길에서
+  # **비밀을 다시 만들어** 이미 초기화된 DB 와 어긋나는 일이 생긴다(2026-10-29).
+  $centralScript = Join-Path $sources.architect 'desktop\runtime\robo-central.sh'
+  if (-not (Test-Path -LiteralPath $centralScript)) {
+    throw "release.missing_central_script: $centralScript"
+  }
+  # ⚠ CR 이 한 바이트라도 있으면 리눅스에서 **통째로** 안 돈다 — shebang 이
+  # `bash\r` 이 된다. architect 의 `.gitattributes` 의 `*.sh text eol=lf` 가 막아
+  # 주지만, 그 줄이 지워지거나 다른 길로 들어온 파일은 조용히 CRLF 다. 못박는다.
+  if ([IO.File]::ReadAllBytes($centralScript) -contains 13) {
+    throw ("release.central_script_crlf: $centralScript 에 CR 이 있다. " +
+           'LF 로 저장하라 — 리눅스에서 shebang 이 깨져 스크립트가 아예 안 돈다')
+  }
+  Copy-Item -LiteralPath $centralScript `
+    -Destination (Join-Path $runtimeRoot 'robo-central.sh') -Force
   # The pdf2bpmn service mounts ./pdf2bpmn/facade.py. A bind mount whose source
   # is missing does not fail loudly -- Docker creates an empty DIRECTORY at that
   # path and uvicorn then starts with no app. Copy it, and fail here if absent.
@@ -1309,7 +1325,7 @@ function Build-DesktopRelease {
     'compose.yml', 'compose.remote-graph.yml', 'compose.central-db.yml',
     'central-authority.env.example',
     'CENTRAL-SERVER.md',
-    'robo-env.ps1',
+    'robo-env.ps1', 'robo-central.sh',
     'robo-images.tar', 'runtime-manifest.json'
   )
   foreach ($entry in Get-ChildItem -LiteralPath $runtimeRoot -Force) {
@@ -1328,6 +1344,15 @@ function Build-DesktopRelease {
     }
   }
   Pass 'runtime carries all three compose files'
+  # 값을 넣는 도구 둘도 같은 이유로 여기서 못박는다 — 이게 없으면 설치하는
+  # 사람은 가이드를 할 방법이 없고, 그 사실은 **고객 PC·고객 서버에서** 드러난다.
+  foreach ($toolName in @('robo-env.ps1', 'robo-central.sh')) {
+    if (-not (Test-Path -LiteralPath (Join-Path $runtimeRoot $toolName))) {
+      throw ("release.setup_tool_not_staged: $toolName 이 포장 폴더에 없다. " +
+             '복사 목록과 $expectedRuntimeEntries 를 함께 확인하라')
+    }
+  }
+  Pass 'runtime carries both setup tools (robo-env.ps1 · robo-central.sh)'
 
   Build-CoLocatedFrontend
   $desktop = Join-Path $sources.architect 'desktop'
@@ -1355,6 +1380,9 @@ function Build-DesktopRelease {
     -Destination (Join-Path $serverRoot 'central-authority.env.example') -Force
   Copy-Item -LiteralPath (Join-Path $runtimeRoot 'CENTRAL-SERVER.md') `
     -Destination (Join-Path $serverRoot 'README.md') -Force
+  # 서버 쪽 "값을 넣는 도구" 한 파일. 관리자가 [고치는 곳] 둘만 채워 돌린다.
+  Copy-Item -LiteralPath (Join-Path $runtimeRoot 'robo-central.sh') `
+    -Destination (Join-Path $serverRoot 'robo-central.sh') -Force
   Copy-Item -LiteralPath $manifestPath -Destination (Join-Path $serverRoot 'runtime-manifest.json') -Force
   # 뿌리에도 둔다 — 설치 **전에** 쓰는 도구라 설치본 안에만 있으면 늦다.
   Copy-Item -LiteralPath (Join-Path $runtimeRoot 'robo-env.ps1') `
@@ -1387,6 +1415,7 @@ function Build-DesktopRelease {
     "$((Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $serverRoot 'compose.yml')).Hash.ToLowerInvariant())  central-server/compose.yml",
     "$((Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $serverRoot 'central-authority.env.example')).Hash.ToLowerInvariant())  central-server/central-authority.env.example",
     "$((Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $serverRoot 'README.md')).Hash.ToLowerInvariant())  central-server/README.md",
+    "$((Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $serverRoot 'robo-central.sh')).Hash.ToLowerInvariant())  central-server/robo-central.sh",
     "$((Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $serverRoot 'runtime-manifest.json')).Hash.ToLowerInvariant())  central-server/runtime-manifest.json",
     "$((Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $releaseRoot 'robo-env.ps1')).Hash.ToLowerInvariant())  robo-env.ps1"
   )

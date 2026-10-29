@@ -170,6 +170,7 @@ try{
     'desktop\runtime\compose.central-db.yml',
     'desktop\runtime\central-authority.env.example',
     'desktop\runtime\CENTRAL-SERVER.md',
+    'desktop\runtime\robo-central.sh',
     'desktop\runtime\runtime-manifest.template.json',
     'docker\Dockerfile.authority',
     'scripts\build-packaged-runtime.ps1'
