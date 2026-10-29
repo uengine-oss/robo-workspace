@@ -80,6 +80,49 @@ sudo bash /opt/robo-central/robo-central.sh rebind
 
 ---
 
+## 순서대로 — **이것만 한다**
+
+각 줄의 `#` 주석이 그 단계의 설명이다. 왜 그런지는 아래 절에 있다.
+**(서버)** 는 전부 bash 다. 윈도우 PC 에 올리려면 **부록 A** 로 간다.
+
+```bash
+# ① 릴리스를 서버로 옮긴다 (약 2GB) — 보내는 쪽(윈도우 PowerShell)에서:
+#      cd <robo-workspace 폴더>
+#      scp -r ".\_releases\<릴리스ID>" <계정>@<서버IP>:/tmp/robo-release
+#    USB 를 못 쓰면 깃으로 받는다 → 납품물-전달.md
+
+# ② 온전한지 본다 — **여덟 줄 모두 OK** 여야 한다
+cd /tmp/robo-release
+sha256sum -c SHA256SUMS
+
+# ③ 값 둘을 채운다 — SERVER_IP · ADMIN_EMPNO (SWP 칸은 보통 비운다)
+hostname -I                                 # 여기 나온 사내망 IP 를 적는다
+vi central-server/robo-central.sh           # 맨 위 [고치는 곳] 만 본다
+
+# ④ 돌린다 — 이 한 번이 적재·비밀·DB·스키마·관리자·정책을 순서대로 한다
+#    끊기면 **다시 돌려도 된다**(이미 만든 비밀은 그대로 둔다)
+sudo bash central-server/robo-central.sh
+
+# ⑤ 사용자 PC 에 줄 접속값을 전달한다 — ⚠ 메일·메신저로 보내지 않는다
+ls -l /opt/robo-central/pc-central-setup.ps1
+
+# ⑥ PC 가 여럿일 때만 — 방화벽을 PC 대역에만 연다
+sudo ufw allow from <PC대역>.0/24 to any port 5432 proto tcp
+sudo ufw allow from <PC대역>.0/24 to any port 7687 proto tcp
+sudo ufw status numbered
+```
+
+끝났으면 각 PC 에 `사용자-설치-가이드.md` 대로 앱을 깐다.
+
+```bash
+# 나중에 상태를 볼 때 — 아무것도 바꾸지 않는다
+sudo bash /opt/robo-central/robo-central.sh check
+# 서버 IP 가 바뀌었을 때 (⚠ 각 PC 의 ROBO_GRAPH_HOST 도 함께 고쳐야 한다)
+sudo bash /opt/robo-central/robo-central.sh rebind
+```
+
+---
+
 # 1. 릴리스를 서버로 옮긴다
 
 폴더째로 옮긴다. `central-server/` 만 옮기면 **`robo-images.tar` 가 없어서**
@@ -88,8 +131,9 @@ sudo bash /opt/robo-central/robo-central.sh rebind
 ```bash
 # 보내는 쪽(내 PC · PowerShell). $REL 은 굽기가 만든 폴더다 —
 # 목록으로 그때 값을 확인한다:
-#   Get-ChildItem C:\Users\YSW\Desktop\robo-workspace\_releases -Directory | Sort-Object LastWriteTime
-scp -r "C:\Users\YSW\Desktop\robo-workspace\_releases\<릴리스ID>" ysw@10.10.0.5:/tmp/robo-release
+#   robo-workspace 폴더에서:  Get-ChildItem .\_releases -Directory | Sort-Object LastWriteTime
+cd <robo-workspace 폴더>
+scp -r ".\_releases\<릴리스ID>" <계정>@<서버IP>:/tmp/robo-release
 ```
 
 > **USB 로 들고 갈 수 없을 때**는 깃으로 받는다 — 작은 것들은 가지에, 큰 파일
@@ -616,9 +660,10 @@ foreach ($n in 'ROBO_GRAPH_MODE','ROBO_GRAPH_HOST','ROBO_GRAPH_PASSWORD',
 
 ```powershell
 # ⚠ 릴리스 ID 는 굽기가 정한다. 아래로 **그때 값**을 확인해 넣는다 —
-#   Get-ChildItem C:\Users\YSW\Desktop\robo-workspace\_releases -Directory | Sort-Object LastWriteTime
+#   robo-workspace 폴더에서:  Get-ChildItem .\_releases -Directory | Sort-Object LastWriteTime
+$WS    = "<robo-workspace 폴더>"
 $RELID = "<릴리스ID>"
-$REL   = "C:\Users\YSW\Desktop\robo-workspace\_releases\$RELID"
+$REL   = "$WS\_releases\$RELID"
 # 자리표시자를 안 바꿨거나 엉뚱한 판을 적으면 **여기서 멈춘다.**
 # 옛 판 폴더가 남아 있어도 조용히 지나가지 않는다 — 그게 10-22 에 걸린 자리다.
 if (-not (Test-Path -LiteralPath "$REL\central-server")) { throw "릴리스 폴더가 없다: $REL" }
