@@ -461,49 +461,6 @@ function Services {
 }
 function Repo-Path($Repo) { return Join-Path $ProjectRoot $Repo.path }
 function Find-Repo([string]$Id) { return $Config.repositories | Where-Object id -eq $Id | Select-Object -First 1 }
-# 핀의 **커밋**(선택). `branch` 는 가져오는 데 쓰고, 이 값이 있으면 그 지점에
-# detached 로 세운다. 그래야 lite 와 enterprise 가 같은 가지를 보면서도 **서로
-# 다른 시점**을 굽고, 지난 판을 다시 구울 수 있다.
-function Repo-Commit($Repo) {
-  # ⚠ **소문자로 맞춘다.** git 은 대문자 해시도 받지만, 이 값은 아래에서
-  #   `git rev-parse HEAD` 의 출력과 **글자로 비교**된다(setup 의 어긋남 검사).
-  #   그대로 두면 대문자로 적어 둔 핀이 멀쩡한 상태를 "어긋났다" 고 말한다.
-  $c = ([string]$Repo.commit).Trim().ToLowerInvariant()
-  if (-not $c) { return '' }
-  # ⚠ `-notmatch` 는 대소문자를 **안 가린다**. 위에서 이미 소문자로 맞췄으므로
-  #   여기서는 그것으로 충분하지만, 의도를 분명히 하려고 `-cnotmatch` 를 쓴다.
-  if ($c -cnotmatch '^[0-9a-f]{40}$') {
-    throw ("workspace.pin_commit_invalid: $($Repo.id) 의 commit 이 40자 16진수가 " +
-           "아니다 ('$($Repo.commit)'). 짧은 해시·태그 이름은 받지 않는다 — 같은 " +
-           '글자가 나중에 다른 커밋을 가리킬 수 있다. `git rev-parse <ref>` 의 ' +
-           '전체 값을 적어라')
-  }
-  return $c
-}
-function Repo-PinLabel($Repo) {
-  $c = Repo-Commit $Repo
-  if ($c) { return "$($Repo.branch)@$($c.Substring(0,12))" }
-  return [string]$Repo.branch
-}
-
-# 핀이 커밋이면 그 지점에 세운다. **pull 하지 않는다** — 끌어오면 핀이 뜻을 잃는다.
-function Set-RepoToPin($Repo, [string]$Path) {
-  $commit = Repo-Commit $Repo
-  if (-not $commit) { return $false }
-  Invoke-Checked 'git' @('-C', $Path, 'fetch', 'origin', $Repo.branch) $WorkspaceRoot
-  # ⚠ 그 커밋이 **그 가지에 있는지** 본다. 다른 가지의 커밋을 적어 두면 checkout 은
-  #   되지만 아무도 그것이 어디서 왔는지 모른다.
-  & git -C $Path merge-base --is-ancestor $commit "origin/$($Repo.branch)" 2>$null | Out-Null
-  if ($LASTEXITCODE -ne 0) {
-    throw ("workspace.pin_commit_not_on_branch: $($Repo.id) 의 commit " +
-           "$($commit.Substring(0,12)) 이 origin/$($Repo.branch) 의 조상이 아니다. " +
-           '가지를 잘못 적었거나 그 커밋이 아직 안 올라갔다')
-  }
-  Invoke-Checked 'git' @('-C', $Path, 'checkout', '--detach', $commit) $WorkspaceRoot
-  Pass "$($Repo.id) pinned at $(Repo-PinLabel $Repo)"
-  return $true
-}
-
 function Is-ArchitectProfile { return $Profile -in @('architect-web','architect-electron') }
 function Analyzer-Root {
   if(Is-ArchitectProfile){return Join-Path(Repo-Path(Find-Repo 'architect'))'robo-analyzer\robo-data-analyzer'}
@@ -614,7 +571,6 @@ function Setup-Workspace {
     if (-not (Test-Path (Join-Path $path '.git'))) {
       Info "cloning $($repo.id)"
       Invoke-Checked 'git' @('clone','--branch',$repo.branch,$repo.url,$path) $ProjectRoot
-      Set-RepoToPin $repo $path | Out-Null
     } else {
       # **"이미 있다" 로 넘기지 않는다.** 폴더가 핀과 다른 저장소·브랜치를 가리키고
       # 있으면 setup 은 조용히 통과하고, 증상은 release 중간의 "파일이 없다" 로
@@ -625,15 +581,7 @@ function Setup-Workspace {
       if($actualUrl -and $actualUrl.TrimEnd('/') -ne ([string]$repo.url).TrimEnd('/')){
         $mismatch += "url=$actualUrl (핀: $($repo.url))"
       }
-      # 핀이 커밋이면 **detached** 가 정상이다 — 가지 이름으로 비교하면
-      # 멀쩡한 상태를 어긋났다고 말한다. 그때는 HEAD 를 커밋과 맞춘다.
-      $pinCommit = Repo-Commit $repo
-      if($pinCommit){
-        $actualHead=(git -C $path rev-parse HEAD 2>$null)
-        if($actualHead -and $actualHead.Trim() -ne $pinCommit){
-          $mismatch += "HEAD=$($actualHead.Trim().Substring(0,12)) (핀: $($pinCommit.Substring(0,12)))"
-        }
-      } elseif($actualBranch -and $actualBranch -ne $repo.branch){
+      if($actualBranch -and $actualBranch -ne $repo.branch){
         $mismatch += "branch=$actualBranch (핀: $($repo.branch))"
       }
       if($mismatch.Count){
@@ -679,9 +627,6 @@ function Prepare-ReleaseWorkspace {
     if($LASTEXITCODE-ne0-or$changes.Count){
       throw "release source must be clean before synchronization: $($repo.id)"
     }
-    # ⚠ 핀이 커밋이면 **그 지점에 세우고 끝낸다.** pull 로 끝을 당겨 오면 핀이
-    #   뜻을 잃고, lite 와 enterprise 가 같은 가지를 볼 때 서로를 끌고 간다.
-    if(Set-RepoToPin $repo $path){ continue }
     $branch=(& git -C $path branch --show-current).Trim()
     if($branch-ne$repo.branch){
       throw "release source must be on $($repo.branch): $($repo.id) is on $branch"
@@ -721,7 +666,6 @@ function Sync-Workspace {
     if (-not (Test-Path (Join-Path $path '.git'))) { Warn "$($repo.id): missing; run setup"; continue }
     $dirty=git -C $path status --porcelain; $branch=git -C $path branch --show-current
     if ($dirty) { Warn "$($repo.id): DIRTY, skipped"; continue }
-    if (Set-RepoToPin $repo $path) { continue }
     if ($branch -ne $repo.branch) { Warn "$($repo.id): branch=$branch, skipped"; continue }
     Info "syncing $($repo.id)"
     Invoke-Checked 'git' @('-C',$path,'fetch','origin',$repo.branch) $WorkspaceRoot
@@ -806,30 +750,12 @@ function Doctor-Workspace {
   # 증상은 `setup` 이 아니라 `release` 중간의 "파일이 없다" 로 나타났다.
   foreach($repo in Repositories){
     $hit=(git ls-remote --heads $repo.url $repo.branch 2>$null)
-    if(-not $hit){
+    if($hit){Pass "$($repo.id) pin reachable: $($repo.branch)"}
+    else{
       Fail ("$($repo.id) pin NOT reachable: $($repo.branch) at $($repo.url) " +
             "[ACTION] workspace.json 의 url·branch 를 고치거나 그 브랜치를 올려라")
       $failed=$true
-      continue
     }
-    # 커밋 핀은 **그 가지에 있는지**까지 본다. 적어만 두고 확인하지 않으면
-    # 증상이 setup 이 아니라 굽기 중간에 나온다 — 이 절의 교훈이 그것이다.
-    $pinCommit = Repo-Commit $repo
-    if($pinCommit){
-      $path = Repo-Path $repo
-      if(Test-Path (Join-Path $path '.git')){
-        & git -C $path cat-file -e "$pinCommit^{commit}" 2>$null | Out-Null
-        if($LASTEXITCODE -ne 0){
-          Fail ("$($repo.id) pinned commit not found locally: $($pinCommit.Substring(0,12)) " +
-                '[ACTION] robo.cmd sync 로 가져오거나 핀을 고쳐라')
-          $failed=$true
-          continue
-        }
-      } else {
-        Warn "$($repo.id) 커밋 핀을 로컬에서 확인하지 못했다(아직 clone 전): $(Repo-PinLabel $repo)"
-      }
-    }
-    Pass "$($repo.id) pin reachable: $(Repo-PinLabel $repo)"
   }
   $neo4jConfigErrors=@(Get-WorkspaceNeo4jConfigurationErrors)
   foreach($errorMessage in $neo4jConfigErrors){Fail "$errorMessage [ACTION] configure robo-workspace\.env";$failed=$true}
