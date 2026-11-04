@@ -4,7 +4,7 @@
       "id": "antlr",
       "path": "antlr-code-parser",
       "url": "https://github.com/uengine-oss/antlr-code-parser.git",
-      "branch": "enterprise-electron",
+      "branch": "main",
       "commit": "39e58bd64fef4808a30fe6afce079cd629d73fd8",
       "profiles": [
         "analyzer",
