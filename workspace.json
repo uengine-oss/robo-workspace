@@ -4,7 +4,8 @@
       "id": "antlr",
       "path": "antlr-code-parser",
       "url": "https://github.com/uengine-oss/antlr-code-parser.git",
-      "branch": "enterprise-electron",
+      "branch": "main",
+      "commit": "39e58bd64fef4808a30fe6afce079cd629d73fd8",
       "profiles": [
         "analyzer",
         "architect-web",
@@ -16,6 +17,7 @@
       "path": "api-gateway",
       "url": "https://github.com/uengine-oss/robo-api-gateway.git",
       "branch": "main",
+      "commit": "05e29bf651b0f919ee498321f51d33ee39a6eb85",
       "profiles": [
         "analyzer",
         "architect-web",
@@ -63,6 +65,7 @@
       "path": "ontological-db",
       "url": "https://github.com/uengine-oss/ontological-db-enterprise-custom.git",
       "branch": "main",
+      "commit": "42bb77bae63d0b6e5fe1cad2b4ab6e2e4f2cbab0",
       "profiles": [
         "architect-electron"
       ]
