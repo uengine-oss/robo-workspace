@@ -611,6 +611,12 @@ sudo bash /opt/robo-central/robo-central.sh down   # 컨테이너만 내린다
 ```text
 서버에 권한 API    authority 를 상시 띄워 실제 로그인부터 적재까지 돌린 기록이 없다
                  (done9 §180. 이미지·CLI·compose·fail-closed 만 확인)
+                 ⇒ 그래서 **지금 납품판은 PC 가 중앙 PG 를 직접 보고 스스로
+                   판정한다.** 앱은 돈다(AUTH_ENFORCE=true). 다만 PC 가 서명
+                   비밀을 갖고 있어 위임 모델의 보호는 아직 못 받는다
+                 ⇒ PC 설치에 **59020 은 필요 없다** — 5433·7687 만 열면 붙는다
+                   (재서 확인: compose.remote-graph·desktop/src 참조 0,
+                    ROBO_AUTHORITY_URL 을 넣는 것이 납품 경로에 없다)
 실제 SWP          사내망에서만 된다. 지금은 시험 로그인 말고 들어갈 길이 없다
 두 PC             락 충돌 · SSE · Bolt 세션 한계 · 분석 409 는 기계가 둘일 때만 보인다
 PC 자격 제한       PC 가 아직 특권 역할 robo 로 붙는다 (done10 §192)
