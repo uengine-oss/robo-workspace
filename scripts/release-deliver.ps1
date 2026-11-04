@@ -187,6 +187,12 @@ cmd /c copy /b "$(($parts.Name) -join '" + "')" "$zipName"
 ``````
 "@ } else { '' }
 
+# 2026-10-30 현장: 서버·PC 에 gh 가 없었다. 저장소가 공개라 자산은 인증 없이 받아지므로
+#   받는 쪽 글은 curl 로 쓴다(range 요청이 되므로 -C - 로 이어받는다).
+$assetBase  = "https://github.com/uengine-oss/robo-workspace/releases/download/$ReleaseId"
+$assetNames = if ($parts.Count) { @($parts.Name) } else { @($zipName) }
+$curlLines  = ($assetNames | ForEach-Object { "curl -L -C - -O $assetBase/$_" }) -join "`n"
+
 $readme = @"
 # 받는 쪽 — 이 판을 **한 폴더로** 되돌린다
 
@@ -199,11 +205,16 @@ $readme = @"
 
 ## 1. 받는다
 
-Releases 에서 태그 ``$ReleaseId`` 의 자산을 내려받는다.
+Releases 에서 태그 ``$ReleaseId`` 의 자산을 내려받는다. 저장소가 공개라 **인증이 없다** —
+gh 없이 curl 로 받는다. 끊기면 같은 줄을 다시 치면 이어받는다. 윈도우는 ``curl.exe`` 로 친다.
 
 ``````bash
-gh release download $ReleaseId --repo uengine-oss/robo-workspace --dir .
+$curlLines
 ``````
+
+> ⚠ 파일은 ``release-assets.githubusercontent.com`` 에서 내려온다. 클론이 됐어도 그쪽이
+> 막혀 있을 수 있다 — 첫 줄이 바로 실패하면 USB 로 받는다.
+> gh 가 로그인돼 있으면 ``gh release download $ReleaseId --repo uengine-oss/robo-workspace --dir .``
 
 ## 2. ⚠ 온전한지 **먼저** 본다
 

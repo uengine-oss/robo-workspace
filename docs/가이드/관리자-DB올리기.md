@@ -8,6 +8,10 @@
 걸리는 시간          이미지 올리기 5~10분 + 나머지 2분
 ```
 
+> ⚠ **먼저 `docker` 가 정말 Docker 인지 본다.** 2026-10-30 POSCO 현장 서버는
+> `docker` 명령이 **podman** 이었다(`sudo docker info` 에 netavark · aardvark-dns ·
+> podman.sock). DB 는 그대로 올라오지만 **이미지 검사 한 곳에서 멈춘다** — §7-9.
+
 **채우는 것은 파일 하나다.** 릴리스의 `central-server/robo-central.sh` 를 열어
 `[고치는 곳]` 의 **값 둘**(서버 IP · 최초 관리자 사번)을 적고 돌린다. 단계마다
 셸을 붙여넣지 않는다 — PC 쪽의 `robo-env.ps1` 과 같은 방식이다.
@@ -89,14 +93,18 @@ sudo bash /opt/robo-central/robo-central.sh rebind
 # ① 릴리스를 서버로 옮긴다 (약 2GB) — 보내는 쪽(윈도우 PowerShell)에서:
 #      cd <robo-workspace 폴더>
 #      scp -r ".\_releases\<릴리스ID>" <계정>@<서버IP>:/tmp/robo-release
-#    USB 를 못 쓰면 깃으로 받는다 → 납품물-전달.md
+#    서버가 GitHub 에 닿으면 **서버에서 바로** 받는다(gh 없이 curl) → 납품물-전달.md §4
+#      ⚠ 가지를 클론한 것만으로는 안 된다 — exe·robo-images.tar 는 Release 자산에 있다
 
 # ② 온전한지 본다 — **여덟 줄 모두 OK** 여야 한다
 cd /tmp/robo-release
 sha256sum -c SHA256SUMS
 
 # ③ 값 둘을 채운다 — SERVER_IP · ADMIN_EMPNO (SWP 칸은 보통 비운다)
+#    ⚠ **파일 안에** 쓴다. 셸에서 export 하면 파일의 '' 가 덮고 sudo 가 지운다
+#      ("SERVER_IP 가 비어 있다" 로 멈춘다 — 2026-10-30 현장)
 hostname -I                                 # 여기 나온 사내망 IP 를 적는다
+sudo ss -ltnp | grep -E ':5432 |:7687 '     # 나오면 [고치는 곳] 5번에서 포트를 옮긴다
 vi central-server/robo-central.sh           # 맨 위 [고치는 곳] 만 본다
 
 # ④ 돌린다 — 이 한 번이 적재·비밀·DB·스키마·관리자·정책을 순서대로 한다
@@ -107,6 +115,7 @@ sudo bash central-server/robo-central.sh
 ls -l /opt/robo-central/pc-central-setup.ps1
 
 # ⑥ PC 가 여럿일 때만 — 방화벽을 PC 대역에만 연다
+#    ⚠ PG_PORT 를 옮겼으면 **그 번호**를 연다 · firewalld 서버면 §5 아래를 본다
 sudo ufw allow from <PC대역>.0/24 to any port 5432 proto tcp
 sudo ufw allow from <PC대역>.0/24 to any port 7687 proto tcp
 sudo ufw status numbered
@@ -198,8 +207,17 @@ vi robo-central.sh
 > ⚠ **`SWP_IDX_*` 다섯은 비밀이 아니라 "몇 번째 칸인가" 다.** `isValidSSO.jsp`
 > 가 돌려주는 CSV 의 **열 위치**(0부터)이고, 그중 `SWP_IDX_EMPNO` 가 **사람을
 > 가리키는 사번**이 된다. 비우면 기본값(0·1·8·9·4)을 쓰는데, 실제 칸 순서가
-> 다르면 **엉뚱한 칸을 사번으로 읽고도 오류가 나지 않는다.** 첫 연동 때
-> `SWP_SSO_LOG_RAW=1` 로 한 번 원문을 찍어 **칸 순서를 눈으로 확인**한다.
+> 다르면 **엉뚱한 칸을 사번으로 읽고도 오류가 나지 않는다.**
+>
+> **첫 연동 때 이렇게 확인한다 — 관리자 본인이 SWP 로 로그인해 본다.**
+> 바로 **관리자로** 들어가면 사번 칸(1)이 `ADMIN_EMPNO` 와 같은 값을 읽은 것이다.
+> **"승인 대기"** 로 막히면 엉뚱한 칸을 읽은 것이다 — `check` 의 "관리자:" 줄에
+> 새로 생긴 `<이상한 uid> | member | pending` 이 무슨 값(로그인 ID·이름·부서)인지로
+> 실제 칸 순서를 가늠한다. 이메일·영문성명은 칸 번호에 기대지 않는다(`swp.py`).
+> 부서(칸 4)는 틀려도 로그인이 되므로 들어간 뒤 화면의 부서를 눈으로 본다.
+>
+> ⚠ `SWP_SSO_LOG_RAW=1` 은 **쓰지 않는다** — 코드(`api/features/auth`)가 이 이름을
+> 읽지 않는다. 주석·스크립트 문구에만 있다(2026-10-30 확인 · fff41f3).
 
 > ⚠ **`AUTH_CALLBACK_ALLOWLIST` 는 양쪽으로 함정이다.**
 > 비우면 콜백이 **loopback 만** 허용된다(`localhost` · `127.0.0.1` · `::1`).
@@ -221,6 +239,8 @@ vi robo-central.sh
                → 우리는 <SERVER_IP>:5432 에 묶으므로 **부딪히지 않는다.** 내릴 필요 없다
 분리 DB 서버   docker-compose.split.db.yml postgres 를 **5432:5432**(모든 주소)
                → **부딪힌다**
+현장 실측      2026-10-30 POSCO 서버 — `0.0.0.0:5432` LISTEN (msa-ez) → **부딪혔다**
+               → PG_PORT=5433 으로 올렸다 · 7687 은 비어 있었다
 ```
 
 부딪히면 **우리 포트를 옮긴다.** `[고치는 곳]` 5번에 `PG_PORT=55432` 처럼 적는다.
@@ -351,6 +371,14 @@ DB 기동        graph-db · graph-bolt 를 띄우고 DB 역할 둘을 넣는다
 파일을 그대로 실행해도 되지만, 그러면 값이 두 군데(이 파일과 `robo-env.ps1`)에
 나뉘어 **다음에 무엇을 고쳐야 하는지** 헷갈린다.
 
+> ⚠ 그대로 실행한다면 **`-File` 로 부르지 않는다.** 리눅스가 만든 파일이라 **BOM 이
+> 없어서** Windows PowerShell 5.1 이 한글 줄을 깨뜨릴 수 있다. UTF-8 로 읽어 돌린다:
+> `Get-Content -Raw -Encoding UTF8 .\pc-central-setup.ps1 | Invoke-Expression`
+>
+> ⚠ 파일은 root 소유(600)다. 옮기려면 서버에서 먼저
+> `sudo cp /opt/robo-central/pc-central-setup.ps1 ~/ && sudo chown $USER ~/pc-central-setup.ps1`
+> — 옮긴 뒤 **그 사본도 지운다.**
+
 > **전달 경로는 조직이 정한다.** 비밀 셋이 평문으로 들어 있다. 메일·메신저로
 > 보내지 않는다. 전달이 끝나면 **양쪽에서 지운다.**
 > (`../2026-10-14/enterprise-todo11` §7-1 의 `A · 자격 전달` — 아직 미정)
@@ -382,6 +410,17 @@ sudo ufw status numbered
 | 바꿀 값 | 무엇 |
 |---|---|
 | `10.10.0.0/24` | **PC 들이 있는 대역**. 전 대역(`0.0.0.0/0`)으로 열지 않는다 |
+| `5432` | `PG_PORT` 를 옮겼으면 **그 번호**(현장은 5433) |
+
+`ufw` 가 없는 서버(RHEL 계열)는 firewalld 다. 어느 쪽인지 먼저 본다.
+
+```bash
+sudo ufw status 2>/dev/null; sudo firewall-cmd --state 2>/dev/null
+# firewalld 면 — PC 대역에만 연다
+sudo firewall-cmd --permanent --add-rich-rule='rule family="ipv4" source address="10.10.0.0/24" port port="5432" protocol="tcp" accept'
+sudo firewall-cmd --permanent --add-rich-rule='rule family="ipv4" source address="10.10.0.0/24" port port="7687" protocol="tcp" accept'
+sudo firewall-cmd --reload
+```
 
 붙일 PC 에서 확인한다 (PowerShell):
 
@@ -602,7 +641,48 @@ sudo bash /opt/robo-central/robo-central.sh down   # 컨테이너만 내린다
 4  모든 로그인 503                   7-4 (initialized)
 5  PC 에서 fabric is unhealthy       PC 의 ROBO_GRAPH_HOST 가 옛 주소다
 6  "남은 환경변수" 로 멈춘다          ~/.bashrc · /etc/environment 를 지우고 재로그인
+7  "SERVER_IP 가 비어 있다"          값을 셸에 넣었다 → **파일 안** [고치는 곳] 에 쓴다
+8  "릴리스가 섞였다" 로 멈춘다        엔진이 podman 인지 본다 → 7-9
 ```
+
+## 7-9. 엔진이 **podman** 일 때 — "릴리스가 섞였다" 로 멈춘다
+
+**섞인 것이 아니다.** 2026-10-30 현장에서 겪었다. 두 가지가 겹친다.
+
+```text
+ID 형식      매니페스트 imageIds 는 굽는 PC(Docker Desktop · containerd 저장소)의
+             **OCI index digest** 다. podman 은 **config digest** 를 ID 로 쓴다
+             — 같은 이미지라도 값이 다르다
+--format     스크립트 안의 `docker image inspect --format '{{.Id}}'` 가 podman 에서
+             ID 가 아니라 **JSON(`[ …`)** 을 돌려줬다(bash -x 로 확인).
+             손으로 친 `sudo docker image inspect` 는 ID 를 줬다 — 원인은 못 밝혔다
+⇒ 이 검사(`images_all_present`)는 podman 에서 **항상 실패한다**
+```
+
+**손으로 확인하고 넘긴다** — 이미지가 맞는지는 아래 셋이 보증한다.
+
+```bash
+# 1) 릴리스가 온전한가 — 여덟 줄 OK (tar 가 체크섬에 묶여 있다)
+sha256sum -c SHA256SUMS
+# 2) 세 장이 올라갔나 — ontological-db · ontological-bolt · robo-authority
+sudo docker images | grep -E 'ontological|authority'
+# 3) ID 가 tar 의 config digest 와 같은가 (판마다 다르다 — 굽는 쪽이 적어 보낸다)
+sudo docker image inspect --format '{{.Id}}' uengine/ontological-db:<릴리스ID>
+```
+
+셋이 맞으면 `central-server/robo-central.sh` 의 `images_all_present` 안 비교 줄을
+**주석으로** 막고 다시 돌린다(`vi` 로 그 줄 맨 앞에 `#`). 스크립트가 실행 때 자신을
+`/opt/robo-central` 로 복사하므로 **릴리스 쪽 파일**을 고친다.
+
+```text
+#    [[ $got == "$want" ]] || { MISSING_IMAGE="$ref"; return 1; }
+```
+
+> ⚠ 그러면 `SHA256SUMS` 의 `central-server/robo-central.sh` 줄은 **다르게** 나온다(정상).
+> ⚠ 현장 터미널은 **붙여넣기가 깨진다** — 둥근 따옴표(‘ ’)로 바뀌거나 긴 해시가
+>   잘린다. 따옴표가 든 줄은 `vi` 에서 **키보드로** 친다.
+> 정식 고침은 다음 판에서 한다 — ID 를 `--format` 에 기대지 않고, 매니페스트에
+> config digest 도 함께 싣는다.
 
 ---
 
