@@ -368,6 +368,12 @@ DB 기동        graph-db · graph-bolt 를 띄우고 DB 역할 둘을 넣는다
 `robo-env.ps1` 위쪽의 네 자리(`$GRAPH_HOST` · `$GRAPH_PASSWORD` ·
 `$ROLE_SECRET` · `$JWT_SECRET`)에 **옮겨 적는다.**
 
+> ⚠ **포트를 옮겼으면 그것도 옮긴다.** `PG_PORT`·`BOLT_PORT` 를 채웠다면 파일에
+> `ROBO_GRAPH_PG_PORT`·`ROBO_GRAPH_BOLT_PORT` 줄이 더 들어 있다 — 받는 사람은
+> `$GRAPH_PG_PORT`·`$GRAPH_BOLT_PORT` 에도 적어야 한다. 빠뜨리면 PC 가 기본 5432 —
+> 현장에서는 **msa-ez 의 DB** — 에 붙으려 하고 `fabric is unhealthy` 로 엉뚱하게 나온다.
+> **사용자에게 포트를 말로도 알린다.**
+
 파일을 그대로 실행해도 되지만, 그러면 값이 두 군데(이 파일과 `robo-env.ps1`)에
 나뉘어 **다음에 무엇을 고쳐야 하는지** 헷갈린다.
 
@@ -425,6 +431,7 @@ sudo firewall-cmd --reload
 붙일 PC 에서 확인한다 (PowerShell):
 
 ```powershell
+# PG_PORT 를 옮겼으면 5432 대신 그 번호 (2026-10-30 현장: 5433)
 foreach ($p in 5432,7687) { "{0} : {1}" -f $p, (Test-NetConnection -ComputerName 10.10.0.5 -Port $p -InformationLevel Quiet) }
 ```
 
