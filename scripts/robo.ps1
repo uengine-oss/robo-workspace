@@ -805,7 +805,18 @@ function Doctor-Workspace {
   # `ontological` 핀의 url 이 상류를 가리키는데 그 브랜치는 fork 에만 있었고,
   # 증상은 `setup` 이 아니라 `release` 중간의 "파일이 없다" 로 나타났다.
   foreach($repo in Repositories){
-    $hit=(git ls-remote --heads $repo.url $repo.branch 2>$null)
+    # ⚠ `2>$null` 로는 안 된다. PowerShell 7 은 native 명령의 stderr 를 ErrorRecord 로
+    #   올리고 이 스크립트는 `$ErrorActionPreference='Stop'` 이라 **그 자리에서 끝난다**.
+    #   그래서 2026-11-05 까지 **아래 Fail 이 한 번도 안 찍혔다** — 없는 url 을 넣으면
+    #   "git : remote: Repository not found." 한 줄만 남기고 doctor 가 멈췄고,
+    #   뒤 저장소는 검사조차 안 됐다(판정 줄도 없다). 멈추는 것이 아니라 **말해야** 한다.
+    $hit = $null
+    try {
+      $hit = @(& git ls-remote --heads $repo.url $repo.branch 2>&1 |
+                 Where-Object { $_ -is [string] -and $_ -notmatch '^remote:' -and $_ -notmatch '^fatal:' })
+    } catch {
+      $hit = $null
+    }
     if(-not $hit){
       Fail ("$($repo.id) pin NOT reachable: $($repo.branch) at $($repo.url) " +
             "[ACTION] workspace.json 의 url·branch 를 고치거나 그 브랜치를 올려라")
